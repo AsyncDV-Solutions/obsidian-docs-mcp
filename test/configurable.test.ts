@@ -10,17 +10,8 @@ import { quienPide } from '../src/herramientas/comun.ts';
 import { buscarGit, iniciarProyecto } from '../src/iniciar.ts';
 import { indexar } from '../src/notas.ts';
 import { prepararTareaNueva } from '../src/tareas.ts';
-import { crearEscenario } from './helpers.ts';
+import { codigoDe, crearEscenario } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
   let esc: Escenario;

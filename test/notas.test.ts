@@ -26,6 +26,8 @@ describe('índice y consultas', () => {
     await escribirNota(p, 'Tareas/sin-id.md', '---\ntype: tarea\n---\nsin project_id\n');
     await escribirNota(p, 'Tareas/rota.md', '---\nproject_id: demo\ntitle: [sin cerrar\n---\n');
     await escribirNota(p, 'Tareas/repetida.md', notaTarea({ id: 'DEM-T-0001', titulo: 'Copia' }));
+    await escribirNota(p, 'Tareas/tipo-raro.md', '---\nproject_id: demo\ntype: cosa\n---\ntipo que el MCP no conoce\n');
+    await escribirNota(p, 'Tareas/id-malo.md', notaTarea({ id: 'XYZ-9', titulo: 'Id con otro formato' }));
     // Carpeta hermana con un nombre parecido: la guardia nunca debe verla.
     await escribirNota(esc.vault, 'Proyectos/demo-otro/Tareas/x.md', notaTarea({ id: 'DEM-T-0009', titulo: 'TESTIGO-HERMANA' }));
   });
@@ -45,6 +47,8 @@ describe('índice y consultas', () => {
     assert.equal(porRuta['Tareas/sin-id.md'], 'SIN_PROJECT_ID');
     assert.equal(porRuta['Tareas/rota.md'], 'YAML_INVALIDO');
     assert.match(porRuta['Tareas/repetida.md'] ?? '', /^ID_DUPLICADO/);
+    assert.equal(porRuta['Tareas/tipo-raro.md'], 'TIPO_DESCONOCIDO');
+    assert.equal(porRuta['Tareas/id-malo.md'], 'ID_INVALIDO');
   });
 
   test('el texto de la carpeta hermana nunca aparece', async () => {

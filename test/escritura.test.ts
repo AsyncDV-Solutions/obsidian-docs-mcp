@@ -5,17 +5,8 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { escribirBloque, leerBloque } from '../src/bloques.ts';
 import { crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
 import { versionDe } from '../src/guardia.ts';
-import { crearEscenario } from './helpers.ts';
+import { codigoDe, crearEscenario } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 describe('escritura segura', () => {
   let esc: Escenario;
@@ -58,6 +49,12 @@ describe('bloques gestionados', () => {
   test('la huella detecta una edición a mano', () => {
     const editada = escribirBloque(nota, 'historial', '- línea 1', '\n').replace('- línea 1', '- línea 1 editada');
     assert.equal(leerBloque(editada, 'historial')?.editadoAMano, true);
+  });
+
+  test('un bloque sin marcador de fin está roto: no se lee como vacío ni se reescribe', () => {
+    const roto = ['## Notas', 'mío', '%% asyncdv:inicio historial %%', '- línea', 'sin cierre'].join('\n');
+    assert.throws(() => leerBloque(roto, 'historial'), { codigo: 'BLOQUE_ROTO' });
+    assert.throws(() => escribirBloque(roto, 'historial', '- nueva', '\n'), { codigo: 'BLOQUE_ROTO' });
   });
 
   test('conserva CRLF', () => {

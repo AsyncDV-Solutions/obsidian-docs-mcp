@@ -128,3 +128,13 @@ export function commitear(repo: string, mensaje: string): void {
   gitDirecto(repo, 'add', '-A');
   gitDirecto(repo, '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', mensaje);
 }
+
+// El código de error estable (ErrorMcp) con el que termina una promesa: 'OK' si no falla, 'OTRO' si el error no lleva código.
+export async function codigoDe(promesa: Promise<unknown>): Promise<string> {
+  try {
+    await promesa;
+    return 'OK';
+  } catch (error) {
+    return (error as { codigo?: string }).codigo ?? 'OTRO';
+  }
+}

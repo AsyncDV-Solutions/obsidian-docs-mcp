@@ -9,17 +9,8 @@ import { crearGuardia } from '../src/guardia.ts';
 import { indexar } from '../src/notas.ts';
 import { clasificar, prepararBorradorRelease, proponer, siguienteVersion, ultimoTag } from '../src/release.ts';
 import type { DatosRelease } from '../src/release.ts';
-import { commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, notaContadores, rutaGit } from './helpers.ts';
+import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, notaContadores, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 describe('clasificación y versiones', () => {
   test('Conventional Commits como señales', () => {

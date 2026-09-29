@@ -10,17 +10,8 @@ import { crear, editar, regenerarBloque, tomar } from '../src/cambios.ts';
 import { crearGuardia } from '../src/guardia.ts';
 import type { Guardia } from '../src/guardia.ts';
 import { indexar } from '../src/notas.ts';
-import { crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
+import { codigoDe, crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 // Una nota con un bloque gestionado vacío, como el Tablero.md que crea «pnpm run iniciar».
 function notaConBloque(projectId = 'demo'): string {

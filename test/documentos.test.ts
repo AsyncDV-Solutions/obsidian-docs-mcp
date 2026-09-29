@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, rmdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
@@ -17,10 +17,10 @@ import type { DatosFuncionalidad, DatosGuia } from '../src/documentos.ts';
 import { separarNota } from '../src/frontmatter.ts';
 import { crearGuardia } from '../src/guardia.ts';
 import type { Guardia } from '../src/guardia.ts';
-import { crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
+import { codigoDe, crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 import { indexar } from '../src/notas.ts';
-import { prepararTablero } from '../src/tablero.ts';
+import { generarTablero, prepararTablero } from '../src/tablero.ts';
 import { prepararCambioEstado } from '../src/tareas.ts';
 
 const TABLERO = ['---', 'project_id: demo', 'type: referencia', 'schema: 1', 'title: Tablero', '---', 'Tablero de prueba.', '', '%% asyncdv:inicio tablero %%', '%% asyncdv:fin %%', ''].join('\n');
@@ -45,15 +45,6 @@ const GUIA: DatosGuia = {
   reviewed_commit: '8b4660d',
   fuentes: ['repo:docs/recetas.md@8b4660d'],
 };
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 describe('documentos y tablero', () => {
   let esc: Escenario;
@@ -355,6 +346,59 @@ describe('documentos y tablero', () => {
       ],
     ];
     for (const [herramienta, preparar] of casos) assert.equal(await codigoDe(preparar()), 'CAMPO_INVALIDO', herramienta);
+  });
+
+  test('el tablero agrupa por estado, bloqueos, release y urgentes', async () => {
+    const enlaceA = (ruta: string, id: string): string => `[[Proyectos/demo/${ruta}|${id}]]`;
+    const t = (id: string, archivo: string, titulo: string, estado: string, prioridad: string, extra: string[] = []) =>
+      escribirNota(esc.proyecto, `Tareas/${archivo}.md`, notaTarea({ id, titulo, estado, prioridad, extra }));
+    await t('DEM-T-0001', 'DEM-T-0001-a', 'A', 'Por hacer', 'P0', [`release: "${enlaceA('Releases/DEM-R-v1.0.0', 'DEM-R-v1.0.0')}"`]);
+    await t('DEM-T-0002', 'DEM-T-0002-b', 'B', 'Bloqueado', 'P2', ['blocked_by:', `  - "${enlaceA('Tareas/DEM-T-0001-a', 'DEM-T-0001')}"`, 'blocked_reason: espera la promoción']);
+    await t('DEM-T-0003', 'DEM-T-0003-c', 'C', 'Completado', 'P1');
+    await t('DEM-T-0004', 'DEM-T-0004-d', 'D', 'Bloqueado', 'P3', ['blocked_by:', `  - "${enlaceA('Tareas/DEM-T-0099-x', 'DEM-T-0099')}"`]);
+    await escribirNota(esc.proyecto, 'Incidencias/DEM-I-0001-falla.md', ['---', 'id: DEM-I-0001', 'project_id: demo', 'type: incidencia', 'schema: 1', 'title: Falla', 'status: En curso', 'priority: P1', '---', ''].join('\n'));
+
+    const lineas = generarTablero(ctx, await indice()).split('\n');
+    const lineaDe = (ruta: string, id: string, prioridad: string, titulo: string): string => `- ${enlaceA(ruta, id)} · ${prioridad} · ${titulo}`;
+    assert.equal(lineas[0], '_5 ítems entre tareas e incidencias._');
+    for (const encabezado of ['### Por hacer (1)', '### Pendiente (0)', '### En curso (1)', '### Bloqueado (2)', '### Completado (1)']) assert.ok(lineas.includes(encabezado), encabezado);
+
+    const bloqueos = lineas.slice(lineas.indexOf('### Bloqueos') + 1, lineas.indexOf('### Por release') - 1);
+    assert.deepEqual(bloqueos, [
+      `- ${enlaceA('Tareas/DEM-T-0002-b', 'DEM-T-0002')} · bloqueada por: DEM-T-0001 (Por hacer) · motivo: espera la promoción`,
+      `- ${enlaceA('Tareas/DEM-T-0004-d', 'DEM-T-0004')} · bloqueada por: DEM-T-0099 (no existe)`,
+    ]);
+
+    const porRelease = lineas.slice(lineas.indexOf('### Por release') + 1, lineas.indexOf('### P0 y P1 abiertas') - 1);
+    assert.deepEqual(porRelease, [
+      '#### DEM-R-v1.0.0',
+      `${lineaDe('Tareas/DEM-T-0001-a', 'DEM-T-0001', 'P0', 'A')} · Por hacer`,
+      '#### Sin release',
+      `${lineaDe('Incidencias/DEM-I-0001-falla', 'DEM-I-0001', 'P1', 'Falla')} · En curso`,
+      `${lineaDe('Tareas/DEM-T-0003-c', 'DEM-T-0003', 'P1', 'C')} · Completado`,
+      `${lineaDe('Tareas/DEM-T-0002-b', 'DEM-T-0002', 'P2', 'B')} · Bloqueado`,
+      `${lineaDe('Tareas/DEM-T-0004-d', 'DEM-T-0004', 'P3', 'D')} · Bloqueado`,
+    ]);
+
+    assert.deepEqual(lineas.slice(lineas.indexOf('### P0 y P1 abiertas') + 1), [
+      lineaDe('Tareas/DEM-T-0001-a', 'DEM-T-0001', 'P0', 'A'),
+      lineaDe('Incidencias/DEM-I-0001-falla', 'DEM-I-0001', 'P1', 'Falla'),
+    ]);
+  });
+
+  test('regenerar el tablero conserva los saltos de línea CRLF', async () => {
+    await writeFile(path.join(esc.proyecto, 'Tablero.md'), TABLERO.replaceAll('\n', '\r\n'), 'utf8');
+    await escribirNota(esc.proyecto, 'Tareas/DEM-T-0001-a.md', notaTarea({ id: 'DEM-T-0001', titulo: 'A', prioridad: 'P1' }));
+    const p = (await prepararTablero(ctx, g, await indice())) ?? assert.fail('debería preparar un cambio');
+    await aplicarCambio(ctx, g, p.confirmacion);
+    const final = await readFile(path.join(esc.proyecto, 'Tablero.md'), 'utf8');
+    assert.match(final, /### Por hacer \(1\)/);
+    assert.ok(!/[^\r]\n/.test(final), 'apareció un salto LF suelto');
+  });
+
+  test('sin Tablero.md, prepararTablero responde TABLERO_FALTA', async () => {
+    await rm(path.join(esc.proyecto, 'Tablero.md'));
+    assert.equal(await codigoDe(prepararTablero(ctx, g, await indice())), 'TABLERO_FALTA');
   });
 
   test('el tablero muestra solo el proyecto, es idempotente y detecta ediciones a mano', async () => {

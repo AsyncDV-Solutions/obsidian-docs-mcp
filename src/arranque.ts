@@ -57,14 +57,15 @@ async function prepararCarpetaEstado(ruta: string): Promise<string> {
   return rutaCanonica(ruta, 'La carpeta de estado (state_dir)');
 }
 
-// entorno: las variables del proceso. Las pruebas pasan {} para no depender de la máquina.
-export async function validarArranque(args: string[], entorno: NodeJS.ProcessEnv = process.env): Promise<EstadoArranque> {
+// entorno y versionNode: las variables y la versión de Node del proceso. Las pruebas pasan las suyas para no
+// depender de la máquina.
+export async function validarArranque(args: string[], entorno: NodeJS.ProcessEnv = process.env, versionNode: string = process.versions.node): Promise<EstadoArranque> {
   const problemas: Problema[] = [];
 
   // 1. Node 24 o posterior.
-  const mayor = Number(process.versions.node.split('.')[0]);
+  const mayor = Number(versionNode.split('.')[0]);
   if (mayor < NODE_MINIMO) {
-    problemas.push({ codigo: 'NODE_VERSION', mensaje: `Se requiere Node ${NODE_MINIMO} o posterior y este proceso usa ${process.version}.` });
+    problemas.push({ codigo: 'NODE_VERSION', mensaje: `Se requiere Node ${NODE_MINIMO} o posterior y este proceso usa v${versionNode}.` });
   }
 
   // 2. Configuración: argumento o variable, archivo, entorno y esquema. Sin ella no se puede seguir.

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
 import { git, inventario, leerArchivoRepo, patronARegex, resumenGit, validarRef } from '../src/repo.ts';
-import { commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
+import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
 async function existe(ruta: string): Promise<boolean> {
@@ -15,15 +15,6 @@ async function existe(ruta: string): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
   }
 }
 

@@ -138,6 +138,21 @@ describe('validarArranque', () => {
     assert.deepEqual(codigos(await arrancar()), ['PLANTILLAS_DENTRO']);
   });
 
+  test('plantillas_dir: una plantilla que es un enlace se rechaza', async (t) => {
+    const dir = path.join(esc.base, 'plantillas');
+    await mkdir(dir);
+    const real = path.join(esc.base, 'real.md');
+    await writeFile(real, await readFile(new URL('../plantillas/tarea.md', import.meta.url), 'utf8'), 'utf8');
+    try {
+      await symlink(real, path.join(dir, 'tarea.md'), 'file');
+    } catch {
+      t.skip('No ejecutada: este sistema no permite crear symlinks sin privilegios');
+      return;
+    }
+    await esc.escribirConfig({ plantillas_dir: dir });
+    assert.deepEqual(codigos(await arrancar()), ['PLANTILLA_ENLACE']);
+  });
+
   test('config.json no existe', async () => {
     await rm(esc.rutaConfig);
     assert.deepEqual(codigos(await arrancar()), ['CONFIG_NO_EXISTE']);
@@ -200,6 +215,39 @@ describe('validarArranque', () => {
   test('project_id con otra capitalización también es ajeno', async () => {
     await writeFile(path.join(esc.proyecto, '_proyecto.md'), marcador('Demo'), 'utf8');
     assert.deepEqual(codigos(await arrancar()), ['MARCADOR_AJENO']);
+  });
+
+  test('un marcador sin la forma esperada se rechaza', async () => {
+    await writeFile(path.join(esc.proyecto, '_proyecto.md'), '---\nproject_id: demo\ntype: otro\n---\nNo es el marcador.\n', 'utf8');
+    assert.deepEqual(codigos(await arrancar()), ['MARCADOR_INVALIDO']);
+  });
+
+  test('un marcador con otro id_prefix se rechaza', async () => {
+    await writeFile(path.join(esc.proyecto, '_proyecto.md'), marcador('demo', 'OTR'), 'utf8');
+    assert.deepEqual(codigos(await arrancar()), ['MARCADOR_PREFIJO']);
+  });
+
+  test('una versión de Node anterior a la mínima se rechaza y la mínima se acepta', async () => {
+    assert.deepEqual(codigos(await validarArranque(['--config', esc.rutaConfig], {}, '22.11.0')), ['NODE_VERSION']);
+    assert.deepEqual(codigos(await validarArranque(['--config', esc.rutaConfig], {}, '24.0.0')), []);
+  });
+
+  test('sin state_dir ni config.json, una carpeta de datos relativa se rechaza', async (t) => {
+    if (process.platform === 'darwin') {
+      t.skip('En macOS la carpeta de estado sale de la carpeta personal, no del entorno');
+      return;
+    }
+    const estado = await validarArranque([], {
+      ASYNCDV_DOCS_PROJECT_ID: 'demo',
+      ASYNCDV_DOCS_ID_PREFIX: 'DEM',
+      ASYNCDV_DOCS_REPO_PATH: esc.repo,
+      ASYNCDV_DOCS_VAULT_PATH: esc.vault,
+      ASYNCDV_DOCS_PROJECT_DIR: 'Proyectos/demo',
+      ASYNCDV_DOCS_ZONA_HORARIA: 'UTC',
+      APPDATA: 'relativa',
+      XDG_STATE_HOME: 'relativa',
+    });
+    assert.deepEqual(codigos(estado), ['ESTADO_RUTA']);
   });
 
   test('un marcador con BOM y CRLF se acepta', async () => {

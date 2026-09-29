@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
@@ -7,9 +7,9 @@ import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
 import { crearGuardia } from '../src/guardia.ts';
 import type { Guardia } from '../src/guardia.ts';
-import { crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
+import { codigoDe, crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-import { indexar } from '../src/notas.ts';
+import { comoLista, filtrar, indexar } from '../src/notas.ts';
 import type { Nota } from '../src/notas.ts';
 import type { Preparado } from '../src/cambios.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../src/tareas.ts';
@@ -24,15 +24,6 @@ const BASE: DatosTareaNueva = {
   pedido_por: 'Ana',
 };
 const ARCHIVO = 'DEM-T-0001-encender-el-correo-por-cliente.md';
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 describe('tareas de punta a punta', () => {
   let esc: Escenario;
@@ -181,5 +172,36 @@ describe('tareas de punta a punta', () => {
   test('si otra sesión está escribiendo, se espera el turno', async () => {
     await writeFile(path.join(esc.dirConfig, 'escritura.lock'), 'otra sesión', 'utf8');
     assert.equal(await codigoDe(aplicarCambio(ctx, g, (await crear()).confirmacion)), 'BLOQUEO_OCUPADO');
+  });
+
+  test('un bloqueo de hace más de un minuto se avisa como antiguo y no se borra solo', async () => {
+    const bloqueo = path.join(esc.dirConfig, 'escritura.lock');
+    await writeFile(bloqueo, 'sesión que murió', 'utf8');
+    const haceDosMinutos = new Date(Date.now() - 120_000);
+    await utimes(bloqueo, haceDosMinutos, haceDosMinutos);
+    assert.equal(await codigoDe(aplicarCambio(ctx, g, (await crear()).confirmacion)), 'BLOQUEO_ANTIGUO');
+    assert.equal(await readFile(bloqueo, 'utf8'), 'sesión que murió', 'lo borra la persona, no el MCP');
+  });
+
+  // Decisión pendiente: al salir de «Bloqueado» no se borran blocked_by ni blocked_reason, y filtrar por
+  // depende_de sigue encontrando la tarea aunque ya no esté bloqueada. Esta prueba fija lo que pasa hoy.
+  test('al salir de «Bloqueado» la tarea conserva blocked_by y blocked_reason', async () => {
+    await aplicarCambio(ctx, g, (await crear()).confirmacion);
+    await aplicarCambio(ctx, g, (await crear({ titulo: 'Otra tarea' })).confirmacion);
+    const pedido = { pedido_por: 'Ana' };
+
+    const antes = await tarea('DEM-T-0002');
+    const bloquear = await prepararCambioEstado(ctx, g, await indice(), { ...pedido, id: antes.id, version_esperada: antes.version, estado: 'Bloqueado', blocked_by: ['DEM-T-0001'], blocked_reason: 'espera la key' });
+    await aplicarCambio(ctx, g, (bloquear ?? assert.fail('debería haber un cambio')).confirmacion);
+
+    const bloqueada = await tarea('DEM-T-0002');
+    const liberar = await prepararCambioEstado(ctx, g, await indice(), { ...pedido, id: bloqueada.id, version_esperada: bloqueada.version, estado: 'En curso' });
+    await aplicarCambio(ctx, g, (liberar ?? assert.fail('debería haber un cambio')).confirmacion);
+
+    const liberada = await tarea('DEM-T-0002');
+    assert.equal(liberada.datos.status, 'En curso');
+    assert.equal(liberada.datos.blocked_reason, 'espera la key');
+    assert.equal(comoLista(liberada.datos.blocked_by).length, 1);
+    assert.deepEqual(filtrar(await indice(), { depende_de: 'DEM-T-0001' }).map((n) => n.id), ['DEM-T-0002']);
   });
 });
