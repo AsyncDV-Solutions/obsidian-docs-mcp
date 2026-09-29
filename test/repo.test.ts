@@ -4,9 +4,11 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
-import { inventario, leerArchivoRepo, patronARegex, resumenGit } from '../src/repo.ts';
+import { ErrorMcp } from '../src/errores.ts';
+import { divergencia, inventario, leerArchivoRepo, patronARegex, resumenGit } from '../src/repo.ts';
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
+import { consultasGitFalsas, falloDeGit } from './consultas-git-falsas.ts';
 
 async function existe(ruta: string): Promise<boolean> {
   try {
@@ -116,6 +118,29 @@ describe('repo en solo lectura', () => {
     assert.equal(r.rama, 'main');
     assert.equal(r.divergencia, null);
     assert.deepEqual(r.tags, []);
+  });
+
+  test('resumenGit reúne las consultas; la divergencia informa -1 si git falla, pero no disfraza otros errores', async () => {
+    const conDesarrollo = (consultas: Parameters<typeof consultasGitFalsas>[0]) => ({
+      ...ctx,
+      config: { ...ctx.config, release: { ...ctx.config.release, rama_desarrollo: 'develop' } },
+      consultasGit: consultasGitFalsas(consultas),
+    });
+    const r = await resumenGit(
+      conDesarrollo({
+        ramaActual: async () => 'main',
+        resolver: async () => 'c'.repeat(40),
+        cambiosSinConfirmar: async () => 2,
+        commitsRecientes: async (max) => ['abc1234 2026-09-29 docs: a', 'def5678 2026-09-28 feat: b'].slice(0, max),
+        tags: async (patron) => (patron === 'v*' ? ['v1.0.0'] : []),
+        contarCommitsEntre: falloDeGit,
+      }),
+    );
+    assert.deepEqual([r.rama, r.head, r.cambios, r.tags], ['main', 'c'.repeat(40), 2, ['v1.0.0']]);
+    assert.deepEqual(r.recientes, ['abc1234 2026-09-29 docs: a', 'def5678 2026-09-28 feat: b']);
+    assert.deepEqual(r.divergencia, { principal: 'main', desarrollo: 'develop', principalNoEnDesarrollo: -1, desarrolloNoEnPrincipal: -1 }, 'la rama no está en el clon');
+    const sinGit = conDesarrollo({ contarCommitsEntre: () => Promise.reject(new ErrorMcp('GIT_NO_CONFIGURADO', 'falta git_path')) });
+    assert.equal(await codigoDe(divergencia(sinGit)), 'GIT_NO_CONFIGURADO');
   });
 
   test('con rama de desarrollo configurada, el resumen informa la divergencia', async () => {

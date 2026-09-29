@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
+import { ErrorMcp } from '../src/errores.ts';
+import type { Commit, ConsultasGit } from '../src/git.ts';
 import { crearGuardia } from '../src/guardia.ts';
 import { indexar } from '../src/notas.ts';
 import { clasificar, prepararBorradorRelease, proponer, siguienteVersion, ultimoTag } from '../src/release.ts';
 import type { DatosRelease } from '../src/release.ts';
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, notaContadores, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
+import { consultasGitFalsas, falloDeGit } from './consultas-git-falsas.ts';
 
 describe('clasificación y versiones', () => {
   test('Conventional Commits como señales', () => {
@@ -205,5 +208,114 @@ describe('propuesta y borrador sobre un repo real', () => {
     assert.match(texto, /## Pasos manuales\nAvisar a soporte\./);
     assert.doesNotMatch(texto, /Primera versión\./);
     assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), { ...datos, version_esperada: nota.version })), 'CONFLICTO', 'la versión leída antes de aplicar ya no vale');
+  });
+});
+
+describe('proponer con un git de mentira', () => {
+  let esc: Escenario;
+  let ctx: Contexto;
+  const commit = (asunto: string, cuerpo = ''): Commit => ({ sha: 'b'.repeat(40), asunto, cuerpo });
+  // Un git donde HEAD está en v1.0.0 y no cambió nada, salvo lo que cada prueba declara.
+  const conGit = (respuestas: Partial<ConsultasGit>): Contexto => ({
+    ...ctx,
+    consultasGit: consultasGitFalsas({
+      resolver: async () => 'a'.repeat(40),
+      tags: async () => ['v1.0.0'],
+      commitsEntre: async () => [],
+      archivosCambiados: async () => [],
+      archivosConMarcador: async () => [],
+      ...respuestas,
+    }),
+  });
+
+  beforeEach(async () => {
+    esc = await crearEscenario();
+    await esc.escribirConfig({
+      release: {
+        migraciones: { carpeta: 'db/migrations', marcador_destructivo: '-- destructiva' },
+        senales: [{ prefijo: 'api/', mensaje: 'Cambió la API pública: revisa los contratos.' }],
+      },
+    });
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok, 'el escenario debería arrancar');
+    ctx = estado.ctx;
+  });
+  afterEach(async () => {
+    await esc.limpiar();
+  });
+
+  test('sin tags propone la línea base', async () => {
+    const p = await proponer(conGit({ tags: async () => [] }), 'main');
+    assert.deepEqual([p.bump, p.version, p.base, p.clasificacion], ['linea-base', '1.0.0', null, null]);
+  });
+
+  test('la base es el tag de versión más alto y no el último de la lista', async () => {
+    let baseUsada = '';
+    const p = await proponer(
+      conGit({
+        tags: async () => ['v1.9.0', 'v1.10.0', 'v1.2.0'],
+        commitsEntre: async (base) => {
+          baseUsada = base;
+          return [commit('fix: a')];
+        },
+      }),
+      'main',
+    );
+    assert.equal(baseUsada, 'v1.10.0');
+    assert.equal(p.version, '1.10.1');
+  });
+
+  test('el bump sale de los commits', async () => {
+    const casos: [Commit[], string, string][] = [
+      [[commit('fix: a')], 'patch', '1.0.1'],
+      [[commit('fix: a'), commit('feat: b')], 'minor', '1.1.0'],
+      [[commit('feat!: a')], 'major', '2.0.0'],
+      [[commit('chore: a', 'BREAKING CHANGE: rompe el formato')], 'major', '2.0.0'],
+      [[commit('chore: mantenimiento')], 'patch', '1.0.1'],
+      [[], 'ninguno', '1.0.0'],
+    ];
+    for (const [commits, bump, version] of casos) {
+      const p = await proponer(conGit({ commitsEntre: async () => commits }), 'main');
+      assert.deepEqual([p.bump, p.version], [bump, version], commits.map((c) => c.asunto).join(', ') || 'sin commits');
+    }
+  });
+
+  test('una migración destructiva nueva sube a major aunque el commit diga feat; una que ya estaba no cuenta', async () => {
+    const nueva = await proponer(
+      conGit({
+        commitsEntre: async () => [commit('feat(db): retira x')],
+        archivosCambiados: async () => ['db/migrations/2_drop.sql'],
+        archivosConMarcador: async () => ['db/migrations/1_vieja.sql', 'db/migrations/2_drop.sql'],
+      }),
+      'main',
+    );
+    assert.equal(nueva.bump, 'major');
+    assert.ok(nueva.motivos.some((m) => m.includes('db/migrations/2_drop.sql')));
+    assert.ok(!nueva.motivos.some((m) => m.includes('1_vieja')));
+    const vieja = await proponer(conGit({ commitsEntre: async () => [commit('fix: a')], archivosConMarcador: async () => ['db/migrations/1_vieja.sql'] }), 'main');
+    assert.equal(vieja.bump, 'patch');
+  });
+
+  test('las señales del proyecto se avisan una sola vez y los commits sin formato también', async () => {
+    const p = await proponer(
+      conGit({ commitsEntre: async () => [commit('arreglé cosas'), commit('feat: b')], archivosCambiados: async () => ['api/a.ts', 'api/b.ts'] }),
+      'main',
+    );
+    assert.equal(p.motivos.filter((m) => m === 'Cambió la API pública: revisa los contratos.').length, 1);
+    assert.ok(p.motivos.includes('1 commit(s) no siguen Conventional Commits: revísalos a mano.'));
+  });
+
+  test('cualquier consulta que falla hace fallar la propuesta en vez de degradarla', async () => {
+    const fallos: [string, Partial<ConsultasGit>][] = [
+      ['resolver', { resolver: falloDeGit }],
+      ['tags', { tags: falloDeGit }],
+      ['commitsEntre', { commitsEntre: falloDeGit }],
+      ['archivosCambiados', { archivosCambiados: falloDeGit }],
+      ['archivosConMarcador', { archivosConMarcador: falloDeGit }],
+    ];
+    for (const [nombre, fallo] of fallos) {
+      assert.equal(await codigoDe(proponer(conGit({ commitsEntre: async () => [commit('feat: a')], ...fallo }), 'main')), 'GIT', nombre);
+    }
+    assert.equal(await codigoDe(proponer(conGit({ resolver: () => Promise.reject(new ErrorMcp('REF_INVALIDA', 'no es una referencia')) }), '--mal')), 'REF_INVALIDA');
   });
 });
