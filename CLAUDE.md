@@ -15,3 +15,17 @@ Servidor MCP que documenta un proyecto de código en un vault de Obsidian. Qué 
 - Una opción nueva lleva: esquema con valor por defecto en `src/config.ts`, documentación en `docs/configuracion.md` y, si es una clave simple, su variable `ASYNCDV_DOCS_*` en `CLAVES_ENTORNO`.
 - Nada específico de un proyecto en el código: lo propio de cada repo va en la configuración.
 - Al subir de versión, cambia `src/version.ts`, `package.json` y `CHANGELOG.md`.
+
+## Agent skills
+
+### Issue tracker
+
+Las issues viven en GitHub Issues del repo (CLI `gh`). Ver `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Etiquetas por defecto: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. Ver `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` en la raíz y ADR en `docs/adr/`. Ver `docs/agents/domain.md`.
