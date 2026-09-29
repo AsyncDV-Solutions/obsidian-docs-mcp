@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
-import { git, inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
+import { inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
 import { AVISO_DATOS, ejecutar } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
@@ -22,7 +22,7 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
         const historicos = ctx.config.docs_historicos;
         const esHistorico = (ruta: string): boolean => historicos.some((h) => (h.endsWith('*') ? ruta.startsWith(h.slice(0, -1)) : ruta === h));
         const grupos = (await inventario(ctx)).filter((g) => categoria === undefined || g.categoria === categoria);
-        const head = (await git(ctx, ['rev-parse', '--short', 'HEAD'])).trim();
+        const head = await ctx.consultasGit.cabezaCorta();
         const lineas = [`Repo de ${v.nombre} @ ${head} (clon local, sin fetch).`];
         for (const g of grupos) {
           lineas.push('', `${g.descripcion} (${g.rutas.length}):`, ...g.rutas.map((r) => `- ${r}${esHistorico(r) ? ' (histórico: preferir el código)' : ''}`));
@@ -43,8 +43,8 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
         const { ctx } = entorno.exigir();
         const contenido = await leerArchivoRepo(ctx, ruta);
         const relativa = validarRelativaRepo(ruta);
-        const head = (await git(ctx, ['rev-parse', '--short', 'HEAD'])).trim();
-        const conCambios = (await git(ctx, ['status', '--porcelain=v1', '--', relativa])).trim() !== '';
+        const head = await ctx.consultasGit.cabezaCorta();
+        const conCambios = (await ctx.consultasGit.cambiosSinConfirmar(relativa)) > 0;
         return ok(
           [
             `fuente: repo:${relativa}@${head}${conCambios ? ' (OJO: el archivo tiene cambios sin commitear; el contenido no es el de ese commit)' : ''}`,

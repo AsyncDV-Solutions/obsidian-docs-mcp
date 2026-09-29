@@ -4,17 +4,14 @@ import type { Preparado } from './cambios.ts';
 import { nombreProyecto } from './config.ts';
 import { ahora, limpiarTextoLibre } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
+import type { Commit } from './git.ts';
 import type { Guardia } from './guardia.ts';
 import { idDeRelease } from './ids.ts';
 import type { Indice } from './notas.ts';
-import { divergencia as calcularDivergencia, git, validarRef } from './repo.ts';
+import { divergencia as calcularDivergencia } from './repo.ts';
 import type { Divergencia } from './repo.ts';
 
-// git grep termina con 1 cuando no encuentra nada: no es un fallo.
-const GREP_SIN_COINCIDENCIAS = 1;
-
 export type Bump = 'major' | 'minor' | 'patch' | 'ninguno' | 'linea-base';
-export type Commit = { sha: string; asunto: string; cuerpo: string };
 export type Clasificacion = { major: Commit[]; minor: Commit[]; patch: Commit[]; otros: Commit[]; noConvencionales: Commit[] };
 
 const CONVENCIONAL = /^([a-z]+)(\([^)]*\))?(!)?: \S/;
@@ -81,27 +78,18 @@ export type Propuesta = {
 };
 
 export async function proponer(ctx: Contexto, headRef: string): Promise<Propuesta> {
-  const head = (await git(ctx, ['rev-parse', '--verify', '--end-of-options', `${validarRef(headRef)}^{commit}`])).trim();
-  const base = ultimoTag((await git(ctx, ['tag', '--list', 'v*'])).split('\n').filter((l) => l !== ''));
+  const git = ctx.consultasGit;
+  const head = await git.resolver(headRef);
+  const base = ultimoTag(await git.tags('v*'));
   const divergencia = await calcularDivergencia(ctx);
   if (base === null) {
     const motivos = ['No hay tags v*: se propone la línea base v1.0.0 en el próximo release que cumpla la lista de verificación.'];
     return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia };
   }
 
-  const registros = await git(ctx, ['log', '--format=%H%x1f%s%x1f%b%x1e', '--end-of-options', `${validarRef(base)}..${head}`]);
-  const commits = registros
-    .split('\x1e')
-    .map((r) => r.trim())
-    .filter((r) => r !== '')
-    .map((r) => {
-      const [sha = '', asunto = '', cuerpo = ''] = r.split('\x1f');
-      return { sha, asunto, cuerpo };
-    });
+  const commits = await git.commitsEntre(base, head);
   const c = clasificar(commits);
-  const archivos = (await git(ctx, ['diff', '--name-only', '--no-renames', '--no-ext-diff', '--no-textconv', '--end-of-options', base, head]))
-    .split('\n')
-    .filter((l) => l !== '');
+  const archivos = await git.archivosCambiados(base, head);
 
   const motivos: string[] = [];
   let bump: Bump = commits.length === 0 ? 'ninguno' : 'patch';
@@ -113,11 +101,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
   // Migraciones destructivas (release.migraciones): una migración nueva con el marcador sube a major.
   const migraciones = ctx.config.release.migraciones;
   if (migraciones?.marcador_destructivo !== undefined) {
-    const marcadas = (await git(ctx, ['grep', '-l', '--fixed-strings', '-e', migraciones.marcador_destructivo, head, '--', migraciones.carpeta], { salidasValidas: [GREP_SIN_COINCIDENCIAS] }))
-      .split('\n')
-      .filter((l) => l !== '')
-      .map((l) => l.slice(l.indexOf(':') + 1)) // "<sha>:ruta" → "ruta"
-      .filter((ruta) => archivos.includes(ruta));
+    const marcadas = (await git.archivosConMarcador(head, migraciones.marcador_destructivo, migraciones.carpeta)).filter((ruta) => archivos.includes(ruta));
     if (marcadas.length > 0) {
       bump = 'major';
       motivos.push(`Migraciones marcadas como destructivas: ${marcadas.join(', ')}.`);
@@ -169,7 +153,7 @@ export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, i
   const cfg = ctx.config;
   const d = limpiarTextoLibre(entrada, cfg.limites.campo_max_kb);
   const id = idDeRelease(cfg.id_prefix, d.version);
-  const tagExiste = (await git(ctx, ['tag', '--list', `v${d.version}`])).trim() !== '';
+  const tagExiste = (await ctx.consultasGit.tags(`v${d.version}`)).length > 0;
   if (d.release_status === 'Publicada' && !tagExiste) {
     throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${d.version} en tu repo local: «Publicada» exige que exista.`);
   }

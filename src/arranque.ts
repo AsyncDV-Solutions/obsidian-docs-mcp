@@ -4,6 +4,8 @@ import * as z from 'zod/v4';
 import { carpetaEstado, cargarConfig, esRutaAbsolutaLocal, leerRutaConfig } from './config.ts';
 import type { Config } from './config.ts';
 import { ErrorMcp } from './errores.ts';
+import { crearConsultasGit } from './git.ts';
+import type { ConsultasGit } from './git.ts';
 import { separarNota } from './frontmatter.ts';
 import { contiene, mismaRuta, rutaCanonica } from './rutas.ts';
 import { crearGuardia } from './guardia.ts';
@@ -17,6 +19,7 @@ export type Contexto = {
   proyecto: string; // carpeta real del proyecto dentro del vault
   plantillas: string | null; // carpeta real de plantillas_dir, si se configuró
   git: string | null; // archivo real de git_path (un enlace se resuelve al arrancar), si se configuró
+  consultasGit: ConsultasGit; // git como consultas con intención: lo único que lanza procesos
 };
 
 export type Problema = { codigo: string; mensaje: string };
@@ -130,7 +133,7 @@ export async function validarArranque(args: string[], entorno: NodeJS.ProcessEnv
   const git = gitPath === undefined ? null : await intentar(problemas, () => resolverGit(gitPath));
   if (git === undefined) return { ok: false, problemas };
 
-  return problemas.length === 0 ? { ok: true, ctx: { config, dirEstado, repo, proyecto, plantillas, git } } : { ok: false, problemas };
+  return problemas.length === 0 ? { ok: true, ctx: { config, dirEstado, repo, proyecto, plantillas, git, consultasGit: crearConsultasGit({ git, repo, timeoutMs: config.limites.git_timeout_ms }) } } : { ok: false, problemas };
 }
 
 // A diferencia de las carpetas (rutaCanonica), git_path SÍ puede ser un enlace: Homebrew instala

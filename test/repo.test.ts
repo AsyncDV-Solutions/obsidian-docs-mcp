@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { access, mkdir, realpath, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
-import { git, inventario, leerArchivoRepo, patronARegex, resumenGit, salidaAceptada, validarRef } from '../src/repo.ts';
+import { inventario, leerArchivoRepo, patronARegex, resumenGit } from '../src/repo.ts';
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
@@ -44,40 +43,11 @@ describe('repo en solo lectura', () => {
     await esc.limpiar();
   });
 
-  // git grep sin coincidencias termina con código 1: no es un fallo. Un error real, un ref inexistente o
-  // un timeout, sí lo es, y nunca debe pasar por «sin coincidencias».
-  test('git acepta la salida 1 solo si el llamador la declara válida, y nunca un fallo real ni un timeout', async () => {
-    const grep = ['grep', '-l', '--fixed-strings', '-e', 'NO-EXISTE-XYZ', 'HEAD'];
-    assert.equal(await git(ctx, grep, { salidasValidas: [1] }), '', 'sin coincidencias no es un fallo');
-    assert.equal(await codigoDe(git(ctx, grep)), 'GIT', 'sin declararla, la salida 1 sigue siendo un fallo');
-    assert.equal(await codigoDe(git(ctx, ['grep', '-l', '-e', 'x', 'ref-que-no-existe'], { salidasValidas: [1] })), 'GIT', 'un ref inexistente termina con 128');
-    const sinTiempo = { ...ctx, config: { ...ctx.config, limites: { ...ctx.config.limites, git_timeout_ms: 1 } } };
-    assert.equal(await codigoDe(git(sinTiempo, grep, { salidasValidas: [1] })), 'GIT', 'un plazo agotado no es una salida válida');
-  });
-
-  // Las ramas de plazo y de señal no se pueden provocar de forma portable con git real: el código con el que
-  // termina un proceso matado depende del sistema y de la versión de Node. Se prueban con los errores que
-  // execFile entrega.
-  test('salidaAceptada: solo una salida declarada, sin plazo ni señal, cuenta como válida', () => {
-    const conError = (cambios: object) => salidaAceptada({ code: 1, signal: null, killed: false, stdout: 'x', ...cambios }, [1]);
-    assert.equal(conError({}), 'x', 'salida declarada y terminó sola');
-    assert.equal(conError({ stdout: undefined }), '', 'sin stdout, vacío');
-    assert.equal(conError({ stderr: '' }), 'x', 'stderr vacío: git no protestó');
-    assert.equal(conError({ stderr: "error: 'HEAD:db/m.sql': unable to read 2c2766bf" }), null, 'git grep también termina con 1 si no pudo leer un objeto');
-    assert.equal(conError({ code: 128 }), null, 'código no declarado');
-    assert.equal(conError({ code: 'ENOENT' }), null, 'un código de sistema no es una salida');
-    assert.equal(conError({ code: null }), null, 'sin código');
-    assert.equal(conError({ killed: true }), null, 'matado por el plazo, aunque su código sea uno declarado');
-    assert.equal(conError({ signal: 'SIGTERM' }), null, 'terminado por una señal, aunque su código sea uno declarado');
-    assert.equal(salidaAceptada({ code: 1, stdout: 'x' }, []), null, 'con la lista vacía nada es válido');
-    assert.equal(salidaAceptada({ code: 1, stdout: 'x' }), null, 'sin lista nada es válido');
-    assert.equal(salidaAceptada(null, [1]), null, 'lo que no es un error de execFile no es una salida');
-  });
-
-  test('sin git_path las herramientas de git responden GIT_NO_CONFIGURADO', async () => {
-    const sinGit = { ...ctx, git: null };
-    assert.equal(await codigoDe(git(sinGit, ['rev-parse', 'HEAD'])), 'GIT_NO_CONFIGURADO');
-    assert.equal(await codigoDe(resumenGit(sinGit)), 'GIT_NO_CONFIGURADO');
+  test('sin git_path el resumen responde GIT_NO_CONFIGURADO', async () => {
+    await esc.escribirConfig();
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok);
+    assert.equal(await codigoDe(resumenGit(estado.ctx)), 'GIT_NO_CONFIGURADO');
   });
 
   // git de Homebrew (macOS) es un enlace: /opt/homebrew/bin/git → ../Cellar/git/<versión>/bin/git.
@@ -94,7 +64,7 @@ describe('repo en solo lectura', () => {
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok, JSON.stringify(estado.ok ? [] : estado.problemas));
     assert.equal(estado.ctx.git, await realpath(rutaGit()));
-    assert.match(await git(estado.ctx, ['rev-parse', 'HEAD']), /^[0-9a-f]{40}/);
+    assert.match(await estado.ctx.consultasGit.resolver('HEAD'), /^[0-9a-f]{40}$/);
   });
 
   test('git_path que es una carpeta o que no existe se rechaza', async () => {
@@ -139,42 +109,6 @@ describe('repo en solo lectura', () => {
     assert.equal(await leerArchivoRepo(ctx, '.github/scripts/validar.mjs'), 'export {};\n');
     assert.equal(await codigoDe(leerArchivoRepo(ctx, '.github/CODEOWNERS')), 'REPO_NO_PERMITIDO');
     assert.equal(await codigoDe(leerArchivoRepo(ctx, '.github/prompts/.env')), 'REPO_NO_PERMITIDO');
-  });
-
-  test('las referencias que parecen opciones se rechazan', () => {
-    assert.equal(validarRef('main'), 'main');
-    assert.throws(() => validarRef('--output=x'), { codigo: 'REF_INVALIDA' });
-    assert.throws(() => validarRef('main..develop'), { codigo: 'REF_INVALIDA' });
-  });
-
-  test('git no reescribe el índice', async () => {
-    const indice = path.join(esc.repo, '.git', 'index');
-    const huella = async (): Promise<string> => createHash('sha256').update(await readFile(indice)).digest('hex');
-    const antes = await huella();
-    const ahora = new Date();
-    await utimes(path.join(esc.repo, 'docs', 'a.md'), ahora, ahora); // mismo contenido, otra fecha: git querría refrescar el índice
-    await git(ctx, ['status', '--porcelain=v1']);
-    assert.equal(await huella(), antes);
-  });
-
-  test('una configuración de git que ejecuta programas no se ejecuta', async (t) => {
-    const testigo = path.join(esc.base, 'testigo-fsmonitor.txt');
-    const gancho = path.join(esc.base, 'gancho.sh');
-    await writeFile(gancho, `#!/bin/sh\necho x > "${testigo.replaceAll('\\', '/')}"\n`, 'utf8');
-    gitDirecto(esc.repo, 'config', 'core.fsmonitor', gancho.replaceAll('\\', '/'));
-    // Control: sin nuestras protecciones, ¿git ejecuta el gancho en este equipo?
-    try {
-      gitDirecto(esc.repo, 'status');
-    } catch {
-      // puede fallar; solo importa si el gancho corrió
-    }
-    if (!(await existe(testigo))) {
-      t.skip('No ejecutada: en este equipo git no ejecutó el gancho de control');
-      return;
-    }
-    await rm(testigo);
-    await git(ctx, ['status', '--porcelain=v1']);
-    assert.equal(await existe(testigo), false);
   });
 
   test('el resumen informa la rama y los tags; sin rama de desarrollo no calcula divergencia', async () => {

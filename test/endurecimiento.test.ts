@@ -28,11 +28,22 @@ describe('endurecimiento', () => {
     }
   });
 
-  test('solo repo.ts lanza procesos', async () => {
+  test('solo git.ts lanza procesos', async () => {
     for (const archivo of await archivosTs(SRC)) {
-      if (path.basename(archivo) === 'repo.ts') continue;
+      if (path.basename(archivo) === 'git.ts') continue;
       assert.doesNotMatch(await readFile(archivo, 'utf8'), /node:child_process/, archivo);
     }
+  });
+
+  // git es un puerto, ConsultasGit: nadie fuera de git.ts sabe armar un comando ni interpretar su salida, y el
+  // ejecutor de comandos no se exporta. Así «solo lectura» lo garantiza la interfaz y no la disciplina de cada llamador.
+  test('nadie fuera de git.ts arma comandos de git', async () => {
+    const comandos = /--end-of-options|rev-parse|--porcelain|\bexecFile\b|salidasValidas/;
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.basename(archivo) === 'git.ts') continue;
+      assert.doesNotMatch(await readFile(archivo, 'utf8'), comandos, archivo);
+    }
+    assert.doesNotMatch(await readFile(path.join(SRC, 'git.ts'), 'utf8'), /export (?:async )?function git\(/, 'git.ts no debe exportar el ejecutor de comandos');
   });
 
   // Los preparadores reciben el texto libre del modelo y cada uno lo limpia antes de usarlo. Sin esto,

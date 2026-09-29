@@ -1,14 +1,10 @@
-import { execFile } from 'node:child_process';
 import type { Dirent } from 'node:fs';
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type { Contexto } from './arranque.ts';
 import type { Categoria } from './config.ts';
 import { ErrorMcp } from './errores.ts';
 import { contiene, mismaRuta } from './rutas.ts';
-
-const ejecutarArchivo = promisify(execFile);
 
 // Exclusiones fijas: GANAN siempre, aunque la ruta calce con una categoría. En config.json
 // (repo.excluir) se suman las propias de cada repo.
@@ -143,63 +139,8 @@ async function recorrer(ctx: Contexto, relativa: string, c: Categoria, rutas: st
   }
 }
 
-// Referencias git aceptadas: letras, dígitos y . _ / -, sin ".." y sin empezar con "-".
-const REF = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/;
-
-export function validarRef(ref: string): string {
-  if (!REF.test(ref)) throw new ErrorMcp('REF_INVALIDA', `Referencia git no válida: «${ref}».`);
-  return ref;
-}
-
-// Entorno mínimo para git (Windows, macOS y Linux). No se heredan variables GIT_* que cambien su comportamiento.
-function entornoGit(): Record<string, string> {
-  const entorno: Record<string, string> = { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' };
-  for (const clave of ['SYSTEMROOT', 'USERPROFILE', 'HOME', 'HOMEDRIVE', 'HOMEPATH', 'PATH', 'TMPDIR']) {
-    const valor = process.env[clave];
-    if (valor !== undefined) entorno[clave] = valor;
-  }
-  return entorno;
-}
-
-// Si el error de execFile es una salida que el llamador declaró válida, devuelve su stdout; si no, null.
-// Solo cuenta una salida declarada de un proceso que terminó solo y sin nada en stderr: git grep también
-// termina con 1 cuando no pudo leer un objeto, y eso no es «sin coincidencias». Un proceso matado por el
-// plazo o por una señal nunca cuenta, sea cual sea el código con el que termine.
-export function salidaAceptada(error: unknown, salidasValidas: number[] = []): string | null {
-  if (typeof error !== 'object' || error === null) return null;
-  const { code, signal, killed, stdout, stderr } = error as { code?: unknown; signal?: unknown; killed?: unknown; stdout?: unknown; stderr?: unknown };
-  const terminoSolo = killed !== true && (signal === null || signal === undefined);
-  const sinErrores = typeof stderr === 'string' ? stderr.trim() === '' : stderr === undefined || stderr === null;
-  if (!terminoSolo || !sinErrores || typeof code !== 'number' || !salidasValidas.includes(code)) return null;
-  return typeof stdout === 'string' ? stdout : '';
-}
-
-// git SIN shell, con protecciones fijas. Solo se llama con subcomandos de lectura.
-// salidasValidas: códigos de salida que no son un fallo para ese subcomando, p. ej. [1] en git grep, que
-// termina con 1 cuando no hay coincidencias (ver salidaAceptada).
-export async function git(ctx: Contexto, args: string[], opciones: { salidasValidas?: number[] } = {}): Promise<string> {
-  const gitPath = ctx.git; // el archivo real, resuelto al arrancar
-  if (gitPath === null) throw new ErrorMcp('GIT_NO_CONFIGURADO', 'Falta git_path (o ASYNCDV_DOCS_GIT_PATH): la ruta absoluta de git.');
-  const protecciones = ['-C', ctx.repo, '--no-pager', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
-  try {
-    const { stdout } = await ejecutarArchivo(gitPath, [...protecciones, ...args], {
-      encoding: 'utf8',
-      timeout: ctx.config.limites.git_timeout_ms,
-      maxBuffer: 2 * 1024 * 1024,
-      windowsHide: true,
-      shell: false,
-      env: entornoGit(),
-    });
-    return stdout;
-  } catch (error) {
-    const salida = salidaAceptada(error, opciones.salidasValidas);
-    if (salida !== null) return salida;
-    throw new ErrorMcp('GIT', `git ${args[0] ?? ''} falló o tardó demasiado.`);
-  }
-}
-
 // Divergencia entre la rama principal y la de desarrollo (release.rama_desarrollo).
-// -1: esa rama no está en el clon local.
+// -1: esa rama no está en el clon local, o git no pudo contarla.
 export type Divergencia = { principal: string; desarrollo: string; principalNoEnDesarrollo: number; desarrolloNoEnPrincipal: number };
 
 export type ResumenGit = {
@@ -216,10 +157,10 @@ export async function divergencia(ctx: Contexto): Promise<Divergencia | null> {
   if (desarrollo === undefined) return null;
   const contar = async (desde: string, hasta: string): Promise<number> => {
     try {
-      const salida = await git(ctx, ['log', '--format=%H', '--end-of-options', `${validarRef(desde)}..${validarRef(hasta)}`]);
-      return salida.split('\n').filter((l) => l !== '').length;
-    } catch {
-      return -1;
+      return await ctx.consultasGit.contarCommitsEntre(desde, hasta);
+    } catch (error) {
+      if (error instanceof ErrorMcp && error.codigo === 'GIT') return -1; // la rama no está en el clon, o git falló
+      throw error;
     }
   };
   return {
@@ -231,12 +172,13 @@ export async function divergencia(ctx: Contexto): Promise<Divergencia | null> {
 }
 
 export async function resumenGit(ctx: Contexto): Promise<ResumenGit> {
+  const git = ctx.consultasGit;
   return {
-    rama: (await git(ctx, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim(),
-    head: (await git(ctx, ['rev-parse', 'HEAD'])).trim(),
-    cambios: (await git(ctx, ['status', '--porcelain=v1'])).split('\n').filter((l) => l.trim() !== '').length,
+    rama: await git.ramaActual(),
+    head: await git.resolver('HEAD'),
+    cambios: await git.cambiosSinConfirmar(),
     divergencia: await divergencia(ctx),
-    recientes: (await git(ctx, ['log', '-n', '15', '--format=%h %ad %s', '--date=short', '--end-of-options', 'HEAD'])).split('\n').filter((l) => l !== ''),
-    tags: (await git(ctx, ['tag', '--list', 'v*'])).split('\n').filter((l) => l !== ''),
+    recientes: await git.commitsRecientes(15),
+    tags: await git.tags('v*'),
   };
 }

@@ -1,7 +1,7 @@
 import type { Contexto } from './arranque.ts';
 import { comoLista } from './notas.ts';
 import type { Indice } from './notas.ts';
-import { excluida, git, validarRelativaRepo } from './repo.ts';
+import { excluida, validarRelativaRepo } from './repo.ts';
 
 // Fuentes comparables con git: repo:<ruta>@<sha> y doc:<ruta>#<sección>@<sha>.
 const FUENTE_GIT = /^(repo|doc):([^#@]+)(?:#[^@]*)?@([0-9a-f]{7,40})$/;
@@ -39,12 +39,12 @@ export async function notasDesactualizadas(
       revisadas++;
       let salida: string;
       try {
-        salida = await git(ctx, ['log', '-n', '1', '--format=%h %ad %s', '--date=short', '--end-of-options', `${m[3] ?? ''}..HEAD`, '--', relativa]);
+        salida = await ctx.consultasGit.ultimoCambioDesde(m[3] ?? '', relativa);
       } catch {
         omitidas++; // el SHA no existe en tu clon local
         continue;
       }
-      if (salida.trim() !== '') desactualizadas.push({ id: nota.id || nota.ruta, fuente, commit: salida.trim() });
+      if (salida !== '') desactualizadas.push({ id: nota.id || nota.ruta, fuente, commit: salida });
     }
   }
   return { desactualizadas, revisadas, omitidas };
