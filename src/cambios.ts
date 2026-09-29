@@ -4,9 +4,9 @@
 //
 // Invariantes que viven acá y en ningún otro lado:
 //   - La vista previa se genera desde las operaciones: la persona aprueba exactamente lo que se escribe.
-//   - Toda operación de reemplazo va pinneada a la versión releída de la nota (concurrencia optimista).
+//   - Toda operación de reemplazo va atada a la versión releída de la nota (concurrencia optimista).
 //   - BOM y saltos de línea de la nota se conservan; «updated» se renueva en cada edición.
-//   - Crear una nota numerada reemplaza _contadores.md pinneado a su versión: aplicar una creación
+//   - Crear una nota numerada reemplaza _contadores.md atado a su versión: aplicar una creación
 //     invalida las otras vistas previas de creación (nunca se reparte un número dos veces).
 //   - El código vence, sirve una sola vez y el tope de escrituras por minuto se comprueba antes de consumirlo.
 import { randomBytes } from 'node:crypto';
@@ -35,45 +35,46 @@ export type Preparado = { confirmacion: string; expira: Date; vistaPrevia: strin
 
 // Cambios preparados y todavía no aplicados. Viven en la memoria del proceso: si el servidor
 // se reinicia, se pierden y hay que volver a prepararlos (falla cerrado, nunca abierto).
-const pendientes = new Map<string, { cambio: Cambio; expira: number }>();
+const preparados = new Map<string, { cambio: Cambio; expira: number }>();
 
 function limpiarVencidos(instante: number): void {
-  for (const [codigo, p] of pendientes) if (p.expira <= instante) pendientes.delete(codigo);
+  for (const [codigo, p] of preparados) if (p.expira <= instante) preparados.delete(codigo);
 }
 
-function guardarCambio(cambio: Cambio, minutos: number): { confirmacion: string; expira: Date } {
+function registrarCambio(cambio: Cambio, minutos: number): { confirmacion: string; expira: Date } {
   const instante = Date.now();
   limpiarVencidos(instante);
   const confirmacion = randomBytes(16).toString('base64url'); // 128 bits aleatorios: no se puede adivinar
   const expira = instante + minutos * 60_000;
-  pendientes.set(confirmacion, { cambio, expira });
+  preparados.set(confirmacion, { cambio, expira });
   return { confirmacion, expira: new Date(expira) };
 }
 
 // Tope de escrituras por minuto (ventana deslizante): la especificación MCP exige limitar la tasa.
 const escrituras: number[] = [];
 
-function consumirCupo(maxPorMinuto: number): void {
-  const instante = Date.now();
+function exigirCupo(maxPorMinuto: number, instante: number): void {
   while (escrituras.length > 0 && (escrituras[0] ?? 0) <= instante - 60_000) escrituras.shift();
   if (escrituras.length >= maxPorMinuto) {
     throw new ErrorMcp('LIMITE', `Se alcanzó el tope de ${maxPorMinuto} escrituras por minuto. Espera un momento.`);
   }
-  escrituras.push(instante);
 }
 
 // Entrega el cambio a aplicar.ts una sola vez. El tope de escrituras por minuto se comprueba ANTES de
-// consumir el código: alcanzar el tope es una pausa, no una invalidación. Todo lo que falle después
-// de tomarlo sí lo consume: aunque aplicar falle a medias, el código ya no sirve.
+// consumir el código: alcanzar el tope es una pausa, no una invalidación. Y solo cuenta como escritura
+// un código válido: uno inexistente o vencido no gasta cupo. Todo lo que falle después de tomarlo sí
+// lo consume: aunque aplicar falle a medias, el código ya no sirve.
 export function tomar(confirmacion: string, maxPorMinuto: number): Cambio {
-  consumirCupo(maxPorMinuto);
-  limpiarVencidos(Date.now());
-  const pendiente = pendientes.get(confirmacion);
-  pendientes.delete(confirmacion);
-  if (pendiente === undefined) {
+  const instante = Date.now();
+  exigirCupo(maxPorMinuto, instante);
+  limpiarVencidos(instante);
+  const preparado = preparados.get(confirmacion);
+  preparados.delete(confirmacion);
+  if (preparado === undefined) {
     throw new ErrorMcp('CONFIRMACION_INVALIDA', 'El código no existe, ya se usó o venció. Vuelve a preparar el cambio.');
   }
-  return pendiente.cambio;
+  escrituras.push(instante);
+  return preparado.cambio;
 }
 
 // ——— Vista previa ———
@@ -135,12 +136,16 @@ function preparar(ctx: Contexto, descripcion: string, ops: Op[], avisos: string[
   };
   const paraLeer = [...ops.filter((op) => op.tipo === 'crear'), ...ops.filter((op) => op.tipo === 'reemplazar')];
   const cuerpo = paraLeer.map((op) => (op.tipo === 'crear' ? `Crear ${op.ruta}:\n———\n${op.contenido}\n———` : `Cambios en ${op.ruta}:\n${diffLineas(op.antes, op.contenido)}`));
-  const { confirmacion, expira } = guardarCambio(cambio, ctx.config.limites.confirmacion_minutos);
+  const { confirmacion, expira } = registrarCambio(cambio, ctx.config.limites.confirmacion_minutos);
   return { confirmacion, expira, vistaPrevia: [...avisos, ...cuerpo].join('\n') };
 }
 
 function avisoEditadoAMano(nombre: string): string {
   return `ATENCIÓN: el bloque «${nombre}» fue editado a mano; al aplicar se pierden esos cambios.`;
+}
+
+function lineaHistorial(momento: { legible: string }, texto: string, herramienta: string): string {
+  return `- ${momento.legible} · ${texto} · ${herramienta}`;
 }
 
 // ——— Crear ———
@@ -183,6 +188,7 @@ async function numerar(ctx: Contexto, guardia: Guardia, indice: Indice, tipo: Ti
 }
 
 // Prepara una nota nueva: propiedades armadas por código + cuerpo de la plantilla con sus bloques.
+// Que el archivo destino ya exista lo detecta aplicar (YA_EXISTE): acá solo se valida la carpeta.
 export async function crear(ctx: Contexto, guardia: Guardia, indice: Indice, p: PedidoCrear): Promise<Preparado> {
   const cfg = ctx.config;
   const momento = ahora(cfg.zona_horaria);
@@ -212,7 +218,7 @@ export async function crear(ctx: Contexto, guardia: Guardia, indice: Indice, p: 
     if (leerBloque(cuerpo, nombre) !== null) cuerpo = escribirBloque(cuerpo, nombre, contenido, '\n');
   }
   if (p.historial !== undefined && leerBloque(cuerpo, 'historial') !== null) {
-    cuerpo = escribirBloque(cuerpo, 'historial', `- ${momento.legible} · ${p.historial} · ${p.herramienta}`, '\n');
+    cuerpo = escribirBloque(cuerpo, 'historial', lineaHistorial(momento, p.historial, p.herramienta), '\n');
   }
   ops.push({ tipo: 'crear', ruta, contenido: unirNota({ bom: false, eol: '\n', doc, cuerpo }) });
   return preparar(ctx, `crear ${id}`, ops);
@@ -226,12 +232,11 @@ export type Edicion = {
   propiedades?: [string, unknown][]; // en orden; null como valor borra la propiedad
   bloques?: Record<string, string>; // bloques gestionados a reescribir; cada uno debe existir
   cuerpo?: (cuerpo: string, eol: string) => string; // excepción: cambios fuera de los bloques (agregar un criterio)
-  avisos?: string[]; // avisos propios del llamador; encabezan la vista previa
 };
 
 // Prepara el reemplazo de una nota existente. Relee la nota: si ya no está en la versión del índice,
-// no prepara nada. Solo cambia propiedades, bloques gestionados, «updated» y el historial; todo lo
-// demás queda igual, byte a byte.
+// no prepara nada. Solo cambia propiedades, bloques gestionados, «updated», el cuerpo que pida el
+// llamador y el historial, en ese orden; todo lo demás queda igual, byte a byte.
 export async function editar(ctx: Contexto, guardia: Guardia, nota: Nota, e: Edicion): Promise<Preparado> {
   const cfg = ctx.config;
   const nombre = nota.id || nota.ruta;
@@ -239,19 +244,16 @@ export async function editar(ctx: Contexto, guardia: Guardia, nota: Nota, e: Edi
   if (leida.version !== nota.version) throw new ErrorMcp('CONFLICTO', `${nombre} cambió desde que la leíste: vuelve a leerla y a preparar el cambio.`);
   const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
   const momento = ahora(cfg.zona_horaria);
-  const avisos = [...(e.avisos ?? [])];
+  const avisos: string[] = [];
 
   // Antes de tocar nada: cada bloque pedido debe existir, y lo editado a mano se advierte (se va a pisar).
   const bloques = Object.entries(e.bloques ?? {});
   for (const [b] of bloques) {
     const bloque = leerBloque(sep.cuerpo, b);
     if (bloque === null) {
-      throw new ErrorMcp('BLOQUE_FALTA', `${nombre} no tiene el bloque gestionado «${b}» (se creó a mano o con una plantilla sin bloques): edita esa sección a mano en Obsidian o agrégale sus marcadores.`);
+      throw new ErrorMcp('BLOQUE_FALTA', `${nombre} no tiene el bloque gestionado «${b}» (se creó a mano o con una plantilla sin bloques): edita ese bloque a mano en Obsidian o agrégale sus marcadores.`);
     }
     if (bloque.editadoAMano) avisos.push(avisoEditadoAMano(b));
-  }
-  if (e.historial !== undefined && leerBloque(sep.cuerpo, 'historial') === null) {
-    throw new ErrorMcp('BLOQUE_FALTA', `${nombre} no tiene el bloque de historial.`);
   }
 
   for (const [clave, valor] of e.propiedades ?? []) {
@@ -259,12 +261,13 @@ export async function editar(ctx: Contexto, guardia: Guardia, nota: Nota, e: Edi
     else sep.doc.set(clave, valor);
   }
   sep.doc.set('updated', momento.fechaHora);
-  let cuerpo = e.cuerpo === undefined ? sep.cuerpo : e.cuerpo(sep.cuerpo, sep.eol);
+  let cuerpo = sep.cuerpo;
   for (const [b, texto] of bloques) cuerpo = escribirBloque(cuerpo, b, texto, sep.eol);
+  if (e.cuerpo !== undefined) cuerpo = e.cuerpo(cuerpo, sep.eol);
   if (e.historial !== undefined) {
     const historial = leerBloque(cuerpo, 'historial');
     if (historial === null) throw new ErrorMcp('BLOQUE_FALTA', `${nombre} no tiene el bloque de historial.`);
-    const linea = `- ${momento.legible} · ${e.historial} · ${e.herramienta}`;
+    const linea = lineaHistorial(momento, e.historial, e.herramienta);
     cuerpo = escribirBloque(cuerpo, 'historial', historial.contenido === '' ? linea : `${historial.contenido}${sep.eol}${linea}`, sep.eol);
     if (historial.editadoAMano) avisos.push('Aviso: el historial fue editado a mano; se agrega la línea igual y se renueva su huella.');
   }

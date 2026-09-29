@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
+import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
 import { escribirBloque } from '../src/bloques.ts';
@@ -34,6 +35,7 @@ describe('cambios preparados', () => {
 
   beforeEach(async () => {
     esc = await crearEscenario();
+    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 } }); // estas pruebas toman códigos seguido
     await escribirNota(esc.proyecto, '_contadores.md', notaContadores());
     await mkdir(path.join(esc.proyecto, 'Tareas'));
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
@@ -56,6 +58,14 @@ describe('cambios preparados', () => {
       assert.ok(p.confirmacion.length >= 16);
       assert.ok(p.expira.getTime() > Date.now());
       assert.equal(await readFile(rutaDe('Tablero.md'), 'utf8'), notaConBloque(), 'preparar no escribe');
+    });
+
+    test('el diff muestra solo lo que cambia, con dos líneas de contexto', async () => {
+      await writeFile(rutaDe('Tablero.md'), notaConBloque().replace('Texto tuyo.\n\n', 'a\nb\nc\nd\ne\nf\n'), 'utf8');
+      const p = await regenerarBloque(ctx, g, 'Tablero.md', 'tablero', '- hola');
+      assert.ok(p !== null);
+      assert.match(p.vistaPrevia, /\n  a\n  …\n  e\n  f\n- %% asyncdv:inicio tablero %%\n\+ %% asyncdv:inicio tablero h=[0-9a-f]{12} %%\n\+ - hola\n  %% asyncdv:fin %%\n/);
+      assert.doesNotMatch(p.vistaPrevia, /\n  c\n/, 'una línea lejos de todo cambio no se muestra');
     });
 
     test('devuelve null si el bloque ya tiene ese contenido', async () => {
@@ -125,6 +135,13 @@ describe('cambios preparados', () => {
       assert.equal(tomar(p.confirmacion, 10).operaciones.length, 1);
     });
 
+    test('prepara aunque el archivo destino ya exista: que ya existe lo dice aplicar', async () => {
+      await escribirNota(esc.proyecto, 'Tareas/DEM-T-0001-encender-el-correo.md', 'Sin propiedades: el índice no la ve.\n');
+      const p = await crear(ctx, g, await indexar(g, ctx.config), TAREA);
+      assert.match(p.vistaPrevia, /Crear Tareas\/DEM-T-0001-encender-el-correo\.md:/);
+      assert.equal(await codigoDe(aplicarCambio(ctx, g, p.confirmacion)), 'YA_EXISTE');
+    });
+
     test('sin contadores válidos no se numera', async () => {
       await escribirNota(esc.proyecto, '_contadores.md', notaContadores().replace('project_id: demo', 'project_id: otro'));
       assert.equal(await codigoDe(crear(ctx, g, await indexar(g, ctx.config), TAREA)), 'CONTADORES_INVALIDO');
@@ -139,7 +156,7 @@ describe('cambios preparados', () => {
     const notaIndexada = async (id = 'DEM-T-0001') => (await indexar(g, ctx.config)).notas.find((n) => n.id === id) ?? assert.fail(`no existe ${id}`);
 
     test('propiedades (null borra), bloques, cuerpo e historial; BOM y CRLF quedan como estaban', async () => {
-      const original = `\uFEFF${notaTarea({ id: 'DEM-T-0001', titulo: 'X', extra: ['assignee: Ana'], cuerpo: CUERPO }).replaceAll('\n', '\r\n')}`;
+      const original = `﻿${notaTarea({ id: 'DEM-T-0001', titulo: 'X', extra: ['assignee: Ana'], cuerpo: CUERPO }).replaceAll('\n', '\r\n')}`;
       await writeFile(rutaDe(RUTA), original, 'utf8');
       const p = await editar(ctx, g, await notaIndexada(), {
         herramienta: 'tarea_actualizar',
@@ -157,7 +174,7 @@ describe('cambios preparados', () => {
       const [op] = tomar(p.confirmacion, 10).operaciones;
       assert.ok(op?.tipo === 'reemplazar');
       assert.equal(op.versionEsperada, (await notaIndexada()).version);
-      assert.ok(op.contenido.startsWith('\uFEFF'), 'se perdió el BOM');
+      assert.ok(op.contenido.startsWith('﻿'), 'se perdió el BOM');
       assert.ok(!/[^\r]\n/.test(op.contenido), 'apareció un salto LF suelto');
       assert.ok(op.contenido.includes('## Notas\r\nmío\r\n'), 'lo no gestionado cambió');
       assert.doesNotMatch(op.contenido, /^assignee:/m);
@@ -169,8 +186,8 @@ describe('cambios preparados', () => {
       await writeFile(rutaDe(RUTA), conBloque, 'utf8');
       assert.equal(await codigoDe(editar(ctx, g, await notaIndexada(), { herramienta: 'x', bloques: { pendientes: 'y' } })), 'BLOQUE_FALTA');
       await writeFile(rutaDe(RUTA), escribirBloque(conBloque, 'que_hace', 'escrito', '\n').replace('escrito', 'escrito y editado'), 'utf8');
-      const p = await editar(ctx, g, await notaIndexada(), { herramienta: 'x', bloques: { que_hace: 'nuevo' }, avisos: ['Aviso propio.'] });
-      assert.match(p.vistaPrevia, /^Aviso propio\.\nATENCIÓN: el bloque «que_hace» fue editado a mano; al aplicar se pierden esos cambios\.\nCambios en /);
+      const p = await editar(ctx, g, await notaIndexada(), { herramienta: 'x', bloques: { que_hace: 'nuevo' } });
+      assert.match(p.vistaPrevia, /^ATENCIÓN: el bloque «que_hace» fue editado a mano; al aplicar se pierden esos cambios\.\nCambios en /);
       assert.match(p.vistaPrevia, /^\+ nuevo$/m);
     });
 
@@ -214,6 +231,14 @@ describe('cambios preparados', () => {
       assert.ok(p !== null);
       assert.throws(() => tomar(p.confirmacion, 0), { codigo: 'LIMITE' });
       assert.equal(tomar(p.confirmacion, 10).descripcion, 'regenerar tablero de Tablero.md');
+    });
+
+    test('un código inválido no gasta cupo', async () => {
+      await escribirNota(esc.proyecto, 'Tablero.md', notaConBloque());
+      const p = await regenerarBloque(ctx, g, 'Tablero.md', 'tablero', '- hola');
+      assert.ok(p !== null);
+      for (let i = 0; i < 1000; i++) assert.throws(() => tomar('no-existe', 1000), { codigo: 'CONFIRMACION_INVALIDA' });
+      assert.equal(tomar(p.confirmacion, 1000).descripcion, 'regenerar tablero de Tablero.md', 'si los inválidos gastaran cupo, aquí saltaría LIMITE');
     });
   });
 });

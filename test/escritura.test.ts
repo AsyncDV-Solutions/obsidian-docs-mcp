@@ -74,4 +74,3 @@ describe('bloques gestionados', () => {
     assert.equal(leerBloque(lf, 'historial')?.editadoAMano, false);
   });
 });
-

@@ -60,7 +60,6 @@ export async function prepararTareaNueva(ctx: Contexto, guardia: Guardia, indice
   });
 }
 
-
 function tareaVigente(indice: Indice, id: string, version: string): Nota {
   return notaVigente(indice, id, version, ['tarea', 'incidencia'], 'la tarea o incidencia');
 }

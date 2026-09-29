@@ -10,6 +10,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y l
 ### Cambiado
 - La vista previa de crear un release cierra el contenido con `———`, como las demás creaciones, y todo reemplazo se rotula `Cambios en <ruta>:` (antes, crear una nota numerada decía `Actualizar _contadores.md:`).
 - Un bloque gestionado se escribe siempre con los saltos de línea de la nota: una nota nunca queda mezclada LF/CRLF.
+- Los avisos y los mensajes de conflicto son los mismos para todos los tipos de nota: el aviso del tablero dice «el bloque «tablero»», editar un release avisa si su bloque fue editado a mano, y editar una nota que cambió después de leerla responde «cambió desde que la leíste».
 - Interno: un solo módulo, `src/cambios.ts`, prepara todos los cambios (crear, editar y regenerar un bloque, con su código, vencimiento y vista previa). Desaparecen `confirmaciones.ts` y `creacion.ts`.
 
 ## 2.1.1 — 2026-09-29

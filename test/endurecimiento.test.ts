@@ -36,7 +36,7 @@ describe('endurecimiento', () => {
   });
 
   // cambios.ts prepara todo lo que se escribe en el vault; iniciar.ts solo crea las notas del sistema.
-  test('solo cambios.ts e iniciar.ts arman el contenido de una nota', async () => {
+  test('solo cambios.ts e iniciar.ts arman el contenido de una nota (frontmatter.ts la define)', async () => {
     for (const archivo of await archivosTs(SRC)) {
       if (['cambios.ts', 'iniciar.ts', 'frontmatter.ts'].includes(path.basename(archivo))) continue;
       assert.doesNotMatch(await readFile(archivo, 'utf8'), /\bunirNota\(/, archivo);
