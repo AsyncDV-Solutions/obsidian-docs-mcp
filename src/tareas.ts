@@ -38,7 +38,7 @@ export async function prepararTareaNueva(ctx: Contexto, guardia: Guardia, indice
   const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   const repetida = tareaRepetida(indice, d.titulo);
   if (repetida !== undefined) return { repetida };
-  if (d.estado_inicial === 'Pendiente' && (d.motivo?.trim() ?? '') === '') {
+  if (d.estado_inicial === 'Pendiente' && (d.motivo ?? '') === '') {
     throw new ErrorMcp('TRANSICION', '«Pendiente» exige un motivo que diga qué evento o condición se espera.');
   }
   return crear(ctx, guardia, indice, {

@@ -66,6 +66,15 @@ describe('dominio', () => {
         falta: undefined,
       });
       assert.equal(entrada.titulo, '  Encender el correo \n', 'la entrada no se muta');
+      assert.deepEqual(entrada.criterios, [' uno', 'dos  '], 'tampoco sus arreglos');
+      assert.deepEqual(entrada.secciones, { corregido: ['  un bug  '] }, 'ni sus objetos anidados');
+      assert.equal(entrada.afirmaciones[0]?.afirmacion, ' a ');
+    });
+
+    test('deja intacto lo que no es un objeto plano, como una fecha', () => {
+      const fecha = new Date('2026-09-29T00:00:00Z');
+      assert.equal(limpiarTextoLibre(fecha, 64), fecha);
+      assert.deepEqual(limpiarTextoLibre({ detected: fecha, nota: ' x ' }, 64), { detected: fecha, nota: 'x' });
     });
 
     test('rechaza los marcadores de bloque gestionado y nombra el campo', () => {

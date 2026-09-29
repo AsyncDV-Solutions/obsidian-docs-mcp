@@ -35,7 +35,7 @@ El estado de un bloque gestionado cuyo contenido cambió fuera del MCP desde la 
 _Avoid_: modificado, sucio, desincronizado
 
 **Texto libre**:
-Texto que aporta el modelo y que se escribe dentro de una nota. Tiene un tope de tamaño y no puede contener los marcadores de un bloque gestionado.
+Texto que aporta el modelo y que se escribe dentro de una nota. Tiene un tope de tamaño, se recorta y no puede contener los marcadores de un bloque gestionado.
 _Avoid_: entrada, input, contenido del usuario
 
 **Versión de una nota**:

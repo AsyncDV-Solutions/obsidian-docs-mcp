@@ -2,9 +2,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { InMemoryTransport } from '@modelcontextprotocol/server';
-import type { EstadoArranque } from '../src/arranque.ts';
-import { crearServidor } from '../src/servidor.ts';
 
 export function marcador(projectId = 'demo', prefijo = 'DEM'): string {
   return ['---', `project_id: ${projectId}`, 'type: proyecto', `id_prefix: ${prefijo}`, 'schema: 1', 'title: Demo', '---', 'Marcador de prueba.', ''].join('\n');
@@ -130,63 +127,4 @@ export async function convertirEnRepoGit(repo: string): Promise<void> {
 export function commitear(repo: string, mensaje: string): void {
   gitDirecto(repo, 'add', '-A');
   gitDirecto(repo, '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', mensaje);
-}
-
-export type Respuesta = {
-  texto: string;
-  error: boolean; // isError: un error de la herramienta o una entrada que rompe el esquema
-};
-
-export type Cliente = {
-  herramientas(): Promise<string[]>;
-  llamar(nombre: string, args?: Record<string, unknown>): Promise<Respuesta>;
-  cerrar(): Promise<void>;
-};
-
-type Mensaje = { id?: number; result?: { tools?: { name: string }[]; content?: { text: string }[]; isError?: boolean }; error?: { message: string } };
-
-// Un cliente MCP mínimo: habla JSON-RPC con crearServidor por un transporte en memoria, sin red ni procesos.
-export async function servir(estado: EstadoArranque): Promise<Cliente> {
-  const servidor = crearServidor(estado);
-  const [lado, delServidor] = InMemoryTransport.createLinkedPair();
-  await servidor.connect(delServidor);
-  const pendientes = new Map<number, (m: Mensaje) => void>();
-  lado.onmessage = (m) => {
-    const { id } = m as Mensaje;
-    if (typeof id === 'number') pendientes.get(id)?.(m as Mensaje);
-  };
-  await lado.start();
-
-  let n = 0;
-  const enviar = (mensaje: object): Promise<void> => lado.send(mensaje as Parameters<typeof lado.send>[0]);
-  const pedir = (method: string, params: object): Promise<Mensaje> =>
-    new Promise((resolver, rechazar) => {
-      const id = ++n;
-      const plazo = setTimeout(() => rechazar(new Error(`sin respuesta a ${method}`)), 5000);
-      pendientes.set(id, (m) => {
-        clearTimeout(plazo);
-        resolver(m);
-      });
-      void enviar({ jsonrpc: '2.0', id, method, params });
-    });
-
-  const inicio = await pedir('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'pruebas', version: '0' } });
-  if (inicio.error !== undefined) throw new Error(`initialize falló: ${inicio.error.message}`);
-  await enviar({ jsonrpc: '2.0', method: 'notifications/initialized' });
-
-  return {
-    async herramientas() {
-      const r = await pedir('tools/list', {});
-      return (r.result?.tools ?? []).map((h) => h.name).sort();
-    },
-    async llamar(nombre, args = {}) {
-      const r = await pedir('tools/call', { name: nombre, arguments: args });
-      if (r.error !== undefined) return { texto: r.error.message, error: true };
-      return { texto: (r.result?.content ?? []).map((c) => c.text).join('\n'), error: r.result?.isError === true };
-    },
-    async cerrar() {
-      await lado.close();
-      await servidor.close();
-    },
-  };
 }

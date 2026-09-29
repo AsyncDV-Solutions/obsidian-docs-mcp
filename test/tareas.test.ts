@@ -78,9 +78,11 @@ describe('tareas de punta a punta', () => {
 
   test('no duplica una tarea abierta con el mismo título, pero sí una completada', async () => {
     await aplicarCambio(ctx, g, (await crear()).confirmacion);
-    const repetida = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, titulo: '  ENCENDER el correo por cliente ' });
-    assert.ok('repetida' in repetida, 'debería devolver la tarea que ya existe');
+    const repetida = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, titulo: '  ENCÉNDER   el correo por cliente ' });
+    assert.ok('repetida' in repetida, 'sin mayúsculas, sin tildes y con espacios sobrantes debería ser la misma tarea');
     assert.equal(repetida.repetida.id, 'DEM-T-0001');
+    const pendienteSinMotivo = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, estado_inicial: 'Pendiente' });
+    assert.ok('repetida' in pendienteSinMotivo, 'la repetida se detecta antes de exigir el motivo de «Pendiente»');
     await escribirNota(esc.proyecto, 'Tareas/DEM-T-0005-cerrada.md', notaTarea({ id: 'DEM-T-0005', titulo: 'Cerrada', estado: 'Completado' }));
     const nueva = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, titulo: 'Cerrada' });
     assert.ok('confirmacion' in nueva, 'una tarea completada no cuenta como repetida');
@@ -92,6 +94,8 @@ describe('tareas de punta a punta', () => {
     const ruta = path.join(esc.proyecto, 'Tareas', ARCHIVO);
 
     const t1 = await tarea('DEM-T-0001');
+    const conMarcador = { id: t1.id, version_esperada: t1.version, pedido_por: 'Ana', estado: 'Pendiente' as const, motivo: 'x %% asyncdv:fin %%' };
+    assert.equal(await codigoDe(prepararCambioEstado(ctx, g, await indice(), conMarcador)), 'CAMPO_INVALIDO');
     const estado = await prepararCambioEstado(ctx, g, await indice(), { id: t1.id, version_esperada: t1.version, pedido_por: 'Ana', estado: 'Pendiente', motivo: '  espera la promoción  ' });
     await aplicarCambio(ctx, g, (estado ?? assert.fail('debería haber un cambio')).confirmacion);
     assert.match(await readFile(ruta, 'utf8'), /Por hacer → Pendiente · pidió: Ana · motivo: espera la promoción · tarea_cambiar_estado/);

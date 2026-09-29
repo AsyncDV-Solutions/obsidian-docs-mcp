@@ -3,12 +3,19 @@ import { mkdir, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
-import { crearEscenario, escribirNota, notaContadores, servir } from './helpers.ts';
-import type { Cliente, Escenario } from './helpers.ts';
+import { servir } from './cliente.ts';
+import type { Cliente } from './cliente.ts';
+import { crearEscenario, escribirNota, notaContadores } from './helpers.ts';
+import type { Escenario } from './helpers.ts';
 
 const TAREA = { titulo: 'Encender el correo', descripcion: 'Pasar la key por site.', criterios: ['Key en Vault'], prioridad: 'P1', pedido_por: 'Ana' };
 const ARCHIVO = 'DEM-T-0001-encender-el-correo.md';
 const CODIGO = /confirmacion="([A-Za-z0-9_-]{16,})"/;
+
+// El código de confirmación que trae la vista previa de una herramienta que prepara.
+function confirmacionDe(texto: string): string {
+  return CODIGO.exec(texto)?.[1] ?? assert.fail('la respuesta no trae el código de confirmación');
+}
 
 describe('servidor MCP, por sus herramientas', () => {
   let esc: Escenario;
@@ -62,7 +69,7 @@ describe('servidor MCP, por sus herramientas', () => {
     assert.match(preparada.texto, /Vence en 5 min y sirve una sola vez\.$/);
     assert.deepEqual(await readdir(carpetaTareas()), [], 'preparar no escribe');
 
-    const codigo = CODIGO.exec(preparada.texto)?.[1] ?? assert.fail('la respuesta no trae el código de confirmación');
+    const codigo = confirmacionDe(preparada.texto);
     const aplicada = await cliente.llamar('cambio_aplicar', { confirmacion: codigo });
     assert.equal(aplicada.texto, `Aplicado:\n- reemplazar _contadores.md\n- crear Tareas/${ARCHIVO}`);
     assert.match(await readFile(path.join(carpetaTareas(), ARCHIVO), 'utf8'), /^id: DEM-T-0001$/m);
@@ -73,7 +80,7 @@ describe('servidor MCP, por sus herramientas', () => {
   });
 
   test('una tarea abierta con el mismo título no se vuelve a preparar', async () => {
-    const codigo = CODIGO.exec((await cliente.llamar('tarea_crear', TAREA)).texto)?.[1] ?? assert.fail('sin código');
+    const codigo = confirmacionDe((await cliente.llamar('tarea_crear', TAREA)).texto);
     await cliente.llamar('cambio_aplicar', { confirmacion: codigo });
     const repetida = await cliente.llamar('tarea_crear', { ...TAREA, titulo: '  ENCENDER el correo  ' });
     assert.equal(repetida.error, false, 'es un aviso, no un error');
@@ -104,7 +111,7 @@ describe('servidor MCP, por sus herramientas', () => {
   });
 
   test('la versión que entrega nota_leer sirve para editar la nota', async () => {
-    const codigo = CODIGO.exec((await cliente.llamar('tarea_crear', TAREA)).texto)?.[1] ?? assert.fail('sin código');
+    const codigo = confirmacionDe((await cliente.llamar('tarea_crear', TAREA)).texto);
     await cliente.llamar('cambio_aplicar', { confirmacion: codigo });
     const leida = await cliente.llamar('nota_leer', { id: 'DEM-T-0001' });
     const version = /^version: ([0-9a-f]{16})$/m.exec(leida.texto)?.[1] ?? assert.fail('nota_leer no entregó una versión de 16 caracteres');

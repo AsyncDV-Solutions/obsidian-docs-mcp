@@ -37,7 +37,8 @@ export function normalizar(texto: string): string {
 // El texto libre es todo lo que aporta el modelo y termina escrito en una nota. Cada cadena tiene un
 // tope de tamaño (en bytes) y no puede llevar marcadores de bloque gestionado: con ellos, el texto
 // podría cerrar un bloque antes de tiempo o abrir otro. Devuelve una copia con las cadenas recortadas
-// y nombra el campo en el error (p. ej. «secciones.corregido[1]»). No toca lo que no es texto.
+// y nombra el campo en el error (p. ej. «secciones.corregido[1]»). Recorre arreglos y objetos planos;
+// todo lo demás (números, fechas, null) lo devuelve tal cual.
 export function limpiarTextoLibre<T>(valor: T, maxKb: number, campo = ''): T {
   if (typeof valor === 'string') {
     if (Buffer.byteLength(valor, 'utf8') > maxKb * 1024) {
@@ -49,7 +50,7 @@ export function limpiarTextoLibre<T>(valor: T, maxKb: number, campo = ''): T {
     return valor.trim() as T;
   }
   if (Array.isArray(valor)) return valor.map((v, i) => limpiarTextoLibre(v, maxKb, `${campo}[${i}]`)) as T;
-  if (typeof valor === 'object' && valor !== null) {
+  if (typeof valor === 'object' && valor !== null && [Object.prototype, null].includes(Object.getPrototypeOf(valor))) {
     const limpio: Record<string, unknown> = {};
     for (const [clave, v] of Object.entries(valor)) limpio[clave] = limpiarTextoLibre(v, maxKb, campo === '' ? clave : `${campo}.${clave}`);
     return limpio as T;

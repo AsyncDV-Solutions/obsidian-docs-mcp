@@ -35,6 +35,21 @@ describe('endurecimiento', () => {
     }
   });
 
+  // Los preparadores reciben el texto libre del modelo y cada uno lo limpia antes de usarlo. Sin esto,
+  // un preparador nuevo podría olvidarlo sin que ninguna prueba lo note. prepararTablero no recibe texto.
+  test('cada preparador de tareas, documentos y release limpia el texto libre antes de usarlo', async () => {
+    for (const archivo of ['tareas.ts', 'documentos.ts', 'release.ts']) {
+      const partes = (await readFile(path.join(SRC, archivo), 'utf8')).split(/^export (?:async )?function /m).slice(1); // una por función exportada
+      const preparadores = partes.filter((p) => p.startsWith('preparar'));
+      assert.ok(preparadores.length > 0, `${archivo} debería exportar preparadores`);
+      for (const parte of preparadores) {
+        const llamada = parte.indexOf('limpiarTextoLibre(');
+        const retorno = parte.search(/\breturn\b/);
+        assert.ok(llamada >= 0 && (retorno < 0 || llamada < retorno), `${archivo}: ${parte.slice(0, parte.indexOf('('))} debe llamar a limpiarTextoLibre antes de su primer return`);
+      }
+    }
+  });
+
   // cambios.ts prepara todo lo que se escribe en el vault; iniciar.ts solo crea las notas del sistema.
   test('solo cambios.ts e iniciar.ts arman el contenido de una nota (frontmatter.ts la define)', async () => {
     for (const archivo of await archivosTs(SRC)) {

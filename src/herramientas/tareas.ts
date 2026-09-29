@@ -5,7 +5,7 @@ import { ESTADOS, PRIORIDADES, RESOLUCIONES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../tareas.ts';
-import { ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, PREPARA, quienPide, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { conPedidoPor, ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 export function registrarTareas(server: McpServer, entorno: Entorno): void {
@@ -36,7 +36,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_crear', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const preparado = await prepararTareaNueva(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) });
+        const preparado = await prepararTareaNueva(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args));
         if ('repetida' in preparado) {
           const { id, datos, ruta } = preparado.repetida;
           return ok(`Ya existe ${id} (${String(datos.status)}) con ese título: ${ruta}. No se preparó nada.`);
@@ -65,7 +65,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_cambiar_estado', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const preparado = await prepararCambioEstado(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) });
+        const preparado = await prepararCambioEstado(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args));
         if (preparado === null) return ok(`${args.id} ya está en «${args.estado}»: no hay nada que cambiar.`);
         return respuestaPreparada(preparado);
       }),
@@ -95,7 +95,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_actualizar', async () => {
         const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararActualizacion(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) }));
+        return respuestaPreparada(await prepararActualizacion(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args)));
       }),
   );
 
