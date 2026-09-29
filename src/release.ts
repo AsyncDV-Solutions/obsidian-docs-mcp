@@ -1,16 +1,11 @@
-import { Document } from 'yaml';
 import type { Contexto } from './arranque.ts';
-import { escribirBloque } from './bloques.ts';
-import { diffLineas, guardarCambio } from './confirmaciones.ts';
-import type { Cambio, Operacion } from './confirmaciones.ts';
-import type { Preparado } from './creacion.ts';
+import { crear, editar } from './cambios.ts';
+import type { Preparado } from './cambios.ts';
 import { nombreProyecto } from './config.ts';
 import { ahora } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
-import { separarNota, unirNota } from './frontmatter.ts';
 import type { Guardia } from './guardia.ts';
 import type { Indice } from './notas.ts';
-import { cargarPlantilla, rellenar } from './plantillas.ts';
 import { divergencia as calcularDivergencia, git, validarRef } from './repo.ts';
 import type { Divergencia } from './repo.ts';
 
@@ -177,12 +172,10 @@ export function contenidoRelease(ctx: Contexto, d: DatosRelease): string {
 export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosRelease): Promise<Preparado> {
   const cfg = ctx.config;
   const id = `${cfg.id_prefix}-R-v${d.version}`;
-  const ruta = `${cfg.carpetas.releases}/${id}.md`;
   const tagExiste = (await git(ctx, ['tag', '--list', `v${d.version}`])).trim() !== '';
   if (d.release_status === 'Publicada' && !tagExiste) {
     throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${d.version} en tu repo local: «Publicada» exige que exista.`);
   }
-  const momento = ahora(cfg.zona_horaria);
   const bloque = contenidoRelease(ctx, d);
   const propiedades: Record<string, unknown> = {
     version: d.version,
@@ -191,38 +184,29 @@ export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, i
     bump: d.bump,
     base_ref: d.base_ref,
     head_ref: d.head_ref,
-    analyzed_on: momento.fecha,
+    analyzed_on: ahora(cfg.zona_horaria).fecha,
     tag_verified: tagExiste,
     promotion_run: d.promotion_run,
     source: d.fuentes,
   };
 
   const existente = indice.notas.find((n) => n.id === id);
-  let operacion: Operacion;
-  let vistaPrevia: string;
   if (existente === undefined) {
-    await guardia.rutaParaEscribir(ruta);
-    const doc = new Document({ id, project_id: cfg.project_id, type: 'release', schema: 1, title: d.titulo, ...propiedades, created: momento.fecha, updated: momento.fechaHora });
-    const cuerpo = escribirBloque(rellenar(await cargarPlantilla('release', ctx.plantillas), {}, '\n'), 'release', bloque, '\n');
-    operacion = { tipo: 'crear', ruta, contenido: unirNota({ bom: false, eol: '\n', doc, cuerpo }) };
-    vistaPrevia = `Crear ${ruta}:\n———\n${operacion.contenido}`;
-  } else {
-    if (d.version_esperada !== existente.version) {
-      throw new ErrorMcp('CONFLICTO', `${id} ya existe: léelo con nota_leer y pasa su versión en version_esperada.`);
-    }
-    const leida = await guardia.leer(existente.ruta);
-    const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
-    sep.doc.set('title', d.titulo);
-    for (const [clave, valor] of Object.entries(propiedades)) {
-      if (valor === undefined) sep.doc.delete(clave);
-      else sep.doc.set(clave, valor);
-    }
-    sep.doc.set('updated', momento.fechaHora);
-    const cuerpo = escribirBloque(sep.cuerpo, 'release', bloque.replace(/\n/g, sep.eol), sep.eol);
-    operacion = { tipo: 'reemplazar', ruta: existente.ruta, contenido: unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo }), versionEsperada: leida.version };
-    vistaPrevia = `Cambios en ${existente.ruta}:\n${diffLineas(leida.texto, operacion.contenido)}`;
+    return crear(ctx, guardia, indice, {
+      tipo: 'release',
+      id, // los releases no se numeran: el id lleva la versión
+      carpeta: cfg.carpetas.releases,
+      titulo: d.titulo,
+      propiedades,
+      valores: {},
+      bloques: { release: bloque },
+      herramienta: 'release_borrador_guardar',
+    });
   }
-  const cambio: Cambio = { descripcion: `${existente === undefined ? 'crear' : 'actualizar'} ${id}`, operaciones: [operacion] };
-  const { confirmacion, expira } = guardarCambio(cambio, cfg.limites.confirmacion_minutos);
-  return { cambio, confirmacion, expira, vistaPrevia };
+  if (d.version_esperada !== existente.version) {
+    throw new ErrorMcp('CONFLICTO', `${id} ya existe: léelo con nota_leer y pasa su versión en version_esperada.`);
+  }
+  // Sin historial: la plantilla de release no lo tiene. Una propiedad sin valor (promotion_run) se quita.
+  const cambios: [string, unknown][] = [['title', d.titulo], ...Object.entries(propiedades).map(([clave, valor]): [string, unknown] => [clave, valor ?? null])];
+  return editar(ctx, guardia, existente, { herramienta: 'release_borrador_guardar', propiedades: cambios, bloques: { release: bloque } });
 }

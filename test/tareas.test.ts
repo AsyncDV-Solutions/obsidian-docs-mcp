@@ -11,7 +11,7 @@ import { crearEscenario, escribirNota, notaContadores, notaTarea } from './helpe
 import type { Escenario } from './helpers.ts';
 import { indexar } from '../src/notas.ts';
 import type { Nota } from '../src/notas.ts';
-import { prepararCambioEstado, prepararTareaNueva, tareaRepetida } from '../src/tareas.ts';
+import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva, tareaRepetida } from '../src/tareas.ts';
 import type { DatosTareaNueva } from '../src/tareas.ts';
 
 const BASE: DatosTareaNueva = {
@@ -118,6 +118,21 @@ describe('tareas de punta a punta', () => {
     assert.equal(seccionNotas(final), seccionNotas(crlf));
     assert.match(final, /Por hacer → Bloqueado · pidió: Ana/);
     assert.match(final, /status: Bloqueado/);
+  });
+
+  test('tarea_actualizar cambia campos, null quita uno, agrega un criterio y exige la versión leída', async () => {
+    await aplicarCambio(ctx, g, (await crear({ responsable: 'Ana' })).confirmacion);
+    const t = await tarea('DEM-T-0001');
+    const pedido = { id: t.id, version_esperada: t.version, pedido_por: 'Ana' };
+    assert.equal(await codigoDe(prepararActualizacion(ctx, g, await indice(), pedido)), 'SIN_CAMBIOS');
+    const p = await prepararActualizacion(ctx, g, await indice(), { ...pedido, prioridad: 'P0', responsable: null, criterio_nuevo: 'Flag apagado' });
+    await aplicarCambio(ctx, g, p.confirmacion);
+    const texto = await readFile(path.join(esc.proyecto, 'Tareas', ARCHIVO), 'utf8');
+    assert.match(texto, /^priority: P0$/m);
+    assert.doesNotMatch(texto, /^assignee:/m);
+    assert.match(texto, /- \[ \] Flag encendido\n- \[ \] Flag apagado\n/);
+    assert.match(texto, /actualizada: priority, assignee, criterio · pidió: Ana · tarea_actualizar/);
+    assert.equal(await codigoDe(prepararActualizacion(ctx, g, await indice(), { ...pedido, prioridad: 'P1' })), 'CONFLICTO', 'la versión leída antes de aplicar ya no vale');
   });
 
   test('si la nota cambió después de la vista previa, no se escribe nada', async () => {
