@@ -67,6 +67,11 @@ export async function reemplazarAtomico(absoluta: string, contenido: string, ver
   }
 }
 
+// Lo que toca el disco al aplicar un cambio, aparte para que una prueba ponga uno de mentira.
+export type Escritor = { crearExclusivo: typeof crearExclusivo; reemplazarAtomico: typeof reemplazarAtomico };
+
+export const escritorReal: Escritor = { crearExclusivo, reemplazarAtomico };
+
 // Exclusión mutua entre procesos: un archivo de bloqueo en la carpeta de estado, fuera del vault.
 // Si dos sesiones (del mismo u otro cliente de IA) aplican cambios a la vez, una recibe BLOQUEO_OCUPADO y reintenta.
 export async function conBloqueo<T>(dirEstado: string, trabajo: () => Promise<T>): Promise<T> {

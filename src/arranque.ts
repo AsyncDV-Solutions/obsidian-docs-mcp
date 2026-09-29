@@ -9,6 +9,7 @@ import type { ConsultasGit } from './git.ts';
 import { separarNota } from './frontmatter.ts';
 import { contiene, mismaRuta, rutaCanonica } from './rutas.ts';
 import { crearGuardia } from './guardia.ts';
+import type { Guardia } from './guardia.ts';
 import { cargarPlantilla, PLANTILLAS } from './plantillas.ts';
 import type { TipoPlantilla } from './plantillas.ts';
 
@@ -17,6 +18,7 @@ export type Contexto = {
   dirEstado: string; // carpeta real de logs y del bloqueo de escritura, fuera del vault y del repo
   repo: string; // raíz real del repo documentado
   proyecto: string; // carpeta real del proyecto dentro del vault
+  guardia: Guardia; // la única puerta a las notas del proyecto
   plantillas: string | null; // carpeta real de plantillas_dir, si se configuró
   consultasGit: ConsultasGit; // git como consultas con intención, sobre el archivo real de git_path (un enlace se resuelve al arrancar)
 };
@@ -127,7 +129,8 @@ export async function validarArranque(args: string[], entorno: NodeJS.ProcessEnv
   });
 
   // 6. El marcador del proyecto.
-  await intentar(problemas, () => validarMarcador(proyecto, config));
+  const guardia = crearGuardia(proyecto, config.limites);
+  await intentar(problemas, () => validarMarcador(guardia, config));
 
   // 7. Las plantillas existen y calzan con sus campos.
   for (const tipo of Object.keys(PLANTILLAS) as TipoPlantilla[]) await intentar(problemas, () => cargarPlantilla(tipo, plantillas));
@@ -137,7 +140,7 @@ export async function validarArranque(args: string[], entorno: NodeJS.ProcessEnv
   const git = gitPath === undefined ? null : await intentar(problemas, () => resolverGit(gitPath));
   if (git === undefined) return { ok: false, problemas };
 
-  return problemas.length === 0 ? { ok: true, ctx: { config, dirEstado, repo, proyecto, plantillas, consultasGit: crearConsultasGit({ git, repo, timeoutMs: config.limites.git_timeout_ms }) } } : { ok: false, problemas };
+  return problemas.length === 0 ? { ok: true, ctx: { config, dirEstado, repo, proyecto, guardia, plantillas, consultasGit: crearConsultasGit({ git, repo, timeoutMs: config.limites.git_timeout_ms }) } } : { ok: false, problemas };
 }
 
 // A diferencia de las carpetas (rutaCanonica), git_path SÍ puede ser un enlace: Homebrew instala
@@ -160,8 +163,7 @@ async function resolverGit(ruta: string): Promise<string> {
   return real;
 }
 
-async function validarMarcador(proyecto: string, config: Config): Promise<void> {
-  const guardia = crearGuardia(proyecto, config.limites);
+async function validarMarcador(guardia: Guardia, config: Config): Promise<void> {
   let texto: string;
   try {
     ({ texto } = await guardia.leer('_proyecto.md'));
