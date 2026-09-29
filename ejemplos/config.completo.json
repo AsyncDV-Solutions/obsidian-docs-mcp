@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "project_id": "tienda",
+  "project_name": "Tienda Online",
+  "id_prefix": "TDA",
+  "repo_path": "/Users/tu-usuario/dev/tienda",
+  "vault_path": "/Users/tu-usuario/Obsidian/Trabajo",
+  "project_dir": "Proyectos/tienda",
+  "zona_horaria": "Europe/Madrid",
+  "git_path": "/usr/bin/git",
+  "usuario": "Ana",
+  "state_dir": "/Users/tu-usuario/.local/state/asyncdv-docs",
+  "plantillas_dir": "/Users/tu-usuario/.config/asyncdv-docs/plantillas",
+  "docs_historicos": ["docs/arquitectura-2023.md", "docs/borradores/*"],
+  "carpetas": {
+    "tareas": "Trabajo/Tareas",
+    "funcionalidades": "Documentación/Funcionalidades",
+    "decisiones": "Documentación/Decisiones",
+    "incidencias": "Trabajo/Incidencias",
+    "releases": "Releases",
+    "guias": "Documentación/Guías"
+  },
+  "areas": ["frontend", "api", "bd", "pagos", "infra", "ci-cd", "seguridad", "docs"],
+  "ambientes": ["produccion", "staging", "local", "repositorio"],
+  "repo": {
+    "categorias": [
+      { "clave": "docs", "descripcion": "Documentación", "carpetas": ["docs"], "archivos": ["README.md", "AGENTS.md"], "extensiones": [".md"] },
+      { "clave": "manifiesto", "descripcion": "Dependencias", "archivos": ["package.json"] },
+      { "clave": "web", "descripcion": "Frontend", "carpetas": ["apps/web/src"], "extensiones": [".ts", ".tsx"] },
+      { "clave": "api", "descripcion": "API", "carpetas": ["apps/api/src"], "extensiones": [".ts"] },
+      { "clave": "migraciones", "descripcion": "Migraciones", "carpetas": ["db/migrations"], "extensiones": [".sql"] },
+      { "clave": "pruebas", "descripcion": "Pruebas (solo nombres)", "carpetas": ["apps/api/test"], "extensiones": [".ts"], "leer_carpetas": false },
+      { "clave": "workflows", "descripcion": "Workflows de CI", "carpetas": [".github/workflows"], "extensiones": [".yml", ".yaml"] }
+    ],
+    "excluir": ["docs/legal/**", "**/fixtures/**", "db/seeds/clientes-*.sql"]
+  },
+  "release": {
+    "rama_principal": "main",
+    "rama_desarrollo": "develop",
+    "lista_verificacion": [
+      "El CI terminó en verde para {head}",
+      "El deploy a staging de {head} funcionó",
+      "Revisaste estas notas"
+    ],
+    "migraciones": { "carpeta": "db/migrations", "marcador_destructivo": "-- destructiva" },
+    "senales": [
+      { "prefijo": "apps/api/src/rutas/", "mensaje": "Cambiaron rutas de la API: revisa si cambió algún contrato." },
+      { "prefijo": "apps/web/src/pagos/", "mensaje": "Cambió el flujo de pago: pruébalo de punta a punta antes del tag." }
+    ]
+  },
+  "limites": {
+    "repo_archivo_max_kb": 128,
+    "escrituras_por_minuto": 10
+  }
+}

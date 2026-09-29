@@ -1,0 +1,228 @@
+import { Document } from 'yaml';
+import type { Contexto } from './arranque.ts';
+import { escribirBloque } from './bloques.ts';
+import { diffLineas, guardarCambio } from './confirmaciones.ts';
+import type { Cambio, Operacion } from './confirmaciones.ts';
+import type { Preparado } from './creacion.ts';
+import { nombreProyecto } from './config.ts';
+import { ahora } from './dominio.ts';
+import { ErrorMcp } from './errores.ts';
+import { separarNota, unirNota } from './frontmatter.ts';
+import type { Guardia } from './guardia.ts';
+import type { Indice } from './notas.ts';
+import { cargarPlantilla, rellenar } from './plantillas.ts';
+import { divergencia as calcularDivergencia, git, validarRef } from './repo.ts';
+import type { Divergencia } from './repo.ts';
+
+export type Bump = 'major' | 'minor' | 'patch' | 'ninguno' | 'linea-base';
+export type Commit = { sha: string; asunto: string; cuerpo: string };
+export type Clasificacion = { major: Commit[]; minor: Commit[]; patch: Commit[]; otros: Commit[]; noConvencionales: Commit[] };
+
+const CONVENCIONAL = /^([a-z]+)(\([^)]*\))?(!)?: \S/;
+
+// Conventional Commits: fix → PATCH, feat → MINOR, "!" o BREAKING CHANGE → MAJOR. Son señales, no reglas.
+export function clasificar(commits: Commit[]): Clasificacion {
+  const c: Clasificacion = { major: [], minor: [], patch: [], otros: [], noConvencionales: [] };
+  for (const commit of commits) {
+    const m = CONVENCIONAL.exec(commit.asunto);
+    if (m === null) c.noConvencionales.push(commit);
+    else if (m[3] === '!' || /^BREAKING[ -]CHANGE: /m.test(commit.cuerpo)) c.major.push(commit);
+    else if (m[1] === 'feat') c.minor.push(commit);
+    else if (m[1] === 'fix') c.patch.push(commit);
+    else c.otros.push(commit);
+  }
+  return c;
+}
+
+type Version = [number, number, number];
+
+function leerVersion(tag: string): Version | null {
+  const m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+  return m === null ? null : [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+export function ultimoTag(tags: string[]): string | null {
+  const validos = tags
+    .map((tag) => ({ tag, v: leerVersion(tag) }))
+    .filter((x): x is { tag: string; v: Version } => x.v !== null)
+    .sort((a, b) => b.v[0] - a.v[0] || b.v[1] - a.v[1] || b.v[2] - a.v[2]);
+  return validos[0]?.tag ?? null;
+}
+
+export function siguienteVersion(base: string | null, bump: Bump): string {
+  const v = base === null ? null : leerVersion(base);
+  if (v === null || bump === 'linea-base') return '1.0.0';
+  if (bump === 'major') return `${v[0] + 1}.0.0`;
+  if (bump === 'minor') return `${v[0]}.${v[1] + 1}.0`;
+  if (bump === 'patch') return `${v[0]}.${v[1]}.${v[2] + 1}`;
+  return `${v[0]}.${v[1]}.${v[2]}`;
+}
+
+// Lista de verificación antes del tag (release.lista_verificacion). {head} se reemplaza por el commit.
+export function listaVerificacion(ctx: Contexto, head: string): string[] {
+  const lista = ctx.config.release.lista_verificacion.map((item) => `- [ ] ${item.replaceAll('{head}', head)}`);
+  const d = ctx.config.release.rama_desarrollo;
+  if (d !== undefined) lista.push(`- [ ] Revisaste la divergencia entre ${ctx.config.release.rama_principal} y ${d}`);
+  return lista;
+}
+
+// Comandos sugeridos para etiquetar. El MCP nunca los ejecuta.
+export function comandosTag(ctx: Contexto, version: string, ref: string): string[] {
+  return [`    git tag -a v${version} ${ref} -m "${nombreProyecto(ctx.config)} v${version}"`, `    git push origin v${version}`];
+}
+
+export type Propuesta = {
+  head: string;
+  base: string | null;
+  bump: Bump;
+  version: string;
+  motivos: string[]; // señales que justifican el bump, para que las revises
+  clasificacion: Clasificacion | null;
+  divergencia: Divergencia | null;
+};
+
+async function gitSiHay(ctx: Contexto, args: string[]): Promise<string> {
+  try {
+    return await git(ctx, args);
+  } catch {
+    return ''; // p. ej., git grep sin coincidencias termina con código 1
+  }
+}
+
+export async function proponer(ctx: Contexto, headRef: string): Promise<Propuesta> {
+  const head = (await git(ctx, ['rev-parse', '--verify', '--end-of-options', `${validarRef(headRef)}^{commit}`])).trim();
+  const base = ultimoTag((await git(ctx, ['tag', '--list', 'v*'])).split('\n').filter((l) => l !== ''));
+  const divergencia = await calcularDivergencia(ctx);
+  if (base === null) {
+    const motivos = ['No hay tags v*: se propone la línea base v1.0.0 en el próximo release que cumpla la lista de verificación.'];
+    return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia };
+  }
+
+  const registros = await git(ctx, ['log', '--format=%H%x1f%s%x1f%b%x1e', '--end-of-options', `${validarRef(base)}..${head}`]);
+  const commits = registros
+    .split('\x1e')
+    .map((r) => r.trim())
+    .filter((r) => r !== '')
+    .map((r) => {
+      const [sha = '', asunto = '', cuerpo = ''] = r.split('\x1f');
+      return { sha, asunto, cuerpo };
+    });
+  const c = clasificar(commits);
+  const archivos = (await git(ctx, ['diff', '--name-only', '--no-renames', '--no-ext-diff', '--no-textconv', '--end-of-options', base, head]))
+    .split('\n')
+    .filter((l) => l !== '');
+
+  const motivos: string[] = [];
+  let bump: Bump = commits.length === 0 ? 'ninguno' : 'patch';
+  if (c.minor.length > 0) bump = 'minor';
+  if (c.major.length > 0) {
+    bump = 'major';
+    motivos.push(`${c.major.length} commit(s) marcados como incompatibles (! o BREAKING CHANGE).`);
+  }
+  // Migraciones destructivas (release.migraciones): una migración nueva con el marcador sube a major.
+  const migraciones = ctx.config.release.migraciones;
+  if (migraciones?.marcador_destructivo !== undefined) {
+    const marcadas = (await gitSiHay(ctx, ['grep', '-l', '--fixed-strings', '-e', migraciones.marcador_destructivo, head, '--', migraciones.carpeta]))
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => l.slice(l.indexOf(':') + 1)) // "<sha>:ruta" → "ruta"
+      .filter((ruta) => archivos.includes(ruta));
+    if (marcadas.length > 0) {
+      bump = 'major';
+      motivos.push(`Migraciones marcadas como destructivas: ${marcadas.join(', ')}.`);
+    }
+  }
+  // Señales propias del proyecto (release.senales): si cambió algo bajo ese prefijo, se avisa.
+  for (const senal of ctx.config.release.senales) {
+    if (archivos.some((a) => a.startsWith(senal.prefijo)) && !motivos.includes(senal.mensaje)) motivos.push(senal.mensaje);
+  }
+  if (c.noConvencionales.length > 0) motivos.push(`${c.noConvencionales.length} commit(s) no siguen Conventional Commits: revísalos a mano.`);
+  return { head, base, bump, version: siguienteVersion(base, bump), motivos, clasificacion: c, divergencia };
+}
+
+// ——— Borrador de notas de release ———
+
+const SECCIONES = { anadido: 'Añadido', cambiado: 'Cambiado', obsoleto: 'Obsoleto', eliminado: 'Eliminado', corregido: 'Corregido', seguridad: 'Seguridad' } as const;
+export type ClaveSeccion = keyof typeof SECCIONES;
+
+export type DatosRelease = {
+  version: string;
+  titulo: string;
+  resumen: string;
+  secciones: Partial<Record<ClaveSeccion, string[]>>;
+  migraciones: string[];
+  bump: string;
+  base_ref: string;
+  head_ref: string;
+  release_status: 'Borrador' | 'Lista' | 'Publicada';
+  promotion_run?: string;
+  fuentes: string[];
+  version_esperada?: string;
+};
+
+// Contenido del bloque «release»: resumen, los 6 tipos de Keep a Changelog, migraciones, verificación y comandos.
+export function contenidoRelease(ctx: Contexto, d: DatosRelease): string {
+  const lista = (items: string[] | undefined, vacio: string): string[] => (items === undefined || items.length === 0 ? [vacio] : items.map((i) => `- ${i}`));
+  const lineas = ['## Resumen', d.resumen, ''];
+  for (const clave of Object.keys(SECCIONES) as ClaveSeccion[]) {
+    lineas.push(`## ${SECCIONES[clave]}`, ...lista(d.secciones[clave], '(nada)'), '');
+  }
+  lineas.push('## Migraciones de base de datos', ...lista(d.migraciones, '(ninguna)'), '');
+  lineas.push('## Verificación antes del tag', ...listaVerificacion(ctx, d.head_ref), '');
+  lineas.push('## Comandos sugeridos (los ejecutas tú, después de verificar)', ...comandosTag(ctx, d.version, d.head_ref));
+  return lineas.join('\n');
+}
+
+// Crea o actualiza <carpetas.releases>/<prefijo>-R-v<versión>.md. Al actualizar, solo cambian las propiedades y el bloque.
+export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosRelease): Promise<Preparado> {
+  const cfg = ctx.config;
+  const id = `${cfg.id_prefix}-R-v${d.version}`;
+  const ruta = `${cfg.carpetas.releases}/${id}.md`;
+  const tagExiste = (await git(ctx, ['tag', '--list', `v${d.version}`])).trim() !== '';
+  if (d.release_status === 'Publicada' && !tagExiste) {
+    throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${d.version} en tu repo local: «Publicada» exige que exista.`);
+  }
+  const momento = ahora(cfg.zona_horaria);
+  const bloque = contenidoRelease(ctx, d);
+  const propiedades: Record<string, unknown> = {
+    version: d.version,
+    proposed_tag: `v${d.version}`,
+    release_status: d.release_status,
+    bump: d.bump,
+    base_ref: d.base_ref,
+    head_ref: d.head_ref,
+    analyzed_on: momento.fecha,
+    tag_verified: tagExiste,
+    promotion_run: d.promotion_run,
+    source: d.fuentes,
+  };
+
+  const existente = indice.notas.find((n) => n.id === id);
+  let operacion: Operacion;
+  let vistaPrevia: string;
+  if (existente === undefined) {
+    await guardia.rutaParaEscribir(ruta);
+    const doc = new Document({ id, project_id: cfg.project_id, type: 'release', schema: 1, title: d.titulo, ...propiedades, created: momento.fecha, updated: momento.fechaHora });
+    const cuerpo = escribirBloque(rellenar(await cargarPlantilla('release', ctx.plantillas), {}, '\n'), 'release', bloque, '\n');
+    operacion = { tipo: 'crear', ruta, contenido: unirNota({ bom: false, eol: '\n', doc, cuerpo }) };
+    vistaPrevia = `Crear ${ruta}:\n———\n${operacion.contenido}`;
+  } else {
+    if (d.version_esperada !== existente.version) {
+      throw new ErrorMcp('CONFLICTO', `${id} ya existe: léelo con nota_leer y pasa su versión en version_esperada.`);
+    }
+    const leida = await guardia.leer(existente.ruta);
+    const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
+    sep.doc.set('title', d.titulo);
+    for (const [clave, valor] of Object.entries(propiedades)) {
+      if (valor === undefined) sep.doc.delete(clave);
+      else sep.doc.set(clave, valor);
+    }
+    sep.doc.set('updated', momento.fechaHora);
+    const cuerpo = escribirBloque(sep.cuerpo, 'release', bloque.replace(/\n/g, sep.eol), sep.eol);
+    operacion = { tipo: 'reemplazar', ruta: existente.ruta, contenido: unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo }), versionEsperada: leida.version };
+    vistaPrevia = `Cambios en ${existente.ruta}:\n${diffLineas(leida.texto, operacion.contenido)}`;
+  }
+  const cambio: Cambio = { descripcion: `${existente === undefined ? 'crear' : 'actualizar'} ${id}`, operaciones: [operacion] };
+  const { confirmacion, expira } = guardarCambio(cambio, cfg.limites.confirmacion_minutos);
+  return { cambio, confirmacion, expira, vistaPrevia };
+}

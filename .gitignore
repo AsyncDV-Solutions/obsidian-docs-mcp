@@ -1,0 +1,12 @@
+node_modules/
+
+# Plan interno del autor: no se publica.
+PLAN.md
+
+# Configuración y estado locales: tienen rutas personales.
+config.json
+*.local.json
+logs/
+escritura.lock
+.env
+.env.*

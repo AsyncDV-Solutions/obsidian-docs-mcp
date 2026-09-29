@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "project_id": "mi-app",
+  "project_name": "Mi App",
+  "id_prefix": "APP",
+  "repo_path": "C:\\Users\\tu-usuario\\dev\\mi-app",
+  "vault_path": "C:\\Users\\tu-usuario\\Documents\\Obsidian\\Mi Vault",
+  "project_dir": "Proyectos/mi-app",
+  "zona_horaria": "America/Santiago",
+  "git_path": "C:\\Program Files\\Git\\cmd\\git.exe",
+  "usuario": "Tu nombre"
+}

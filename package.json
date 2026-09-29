@@ -1,0 +1,37 @@
+{
+  "name": "obsidian-docs-mcp",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Servidor MCP local que documenta cualquier proyecto de código en un vault de Obsidian: tareas, funcionalidades, decisiones, incidencias y releases, siempre con vista previa y confirmación.",
+  "license": "MIT",
+  "author": "AsyncDV Solutions",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AsyncDV-Solutions/obsidian-docs-mcp.git"
+  },
+  "homepage": "https://github.com/AsyncDV-Solutions/obsidian-docs-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/AsyncDV-Solutions/obsidian-docs-mcp/issues"
+  },
+  "keywords": ["mcp", "model-context-protocol", "obsidian", "documentation", "claude", "ai-agents"],
+  "type": "module",
+  "scripts": {
+    "iniciar": "node src/iniciar.ts",
+    "typecheck": "tsc",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "verificar": "tsc && node --test \"test/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.1.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "typescript": "7.0.2"
+  }
+}
