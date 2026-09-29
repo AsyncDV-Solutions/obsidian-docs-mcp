@@ -10,3 +10,7 @@ logs/
 escritura.lock
 .env
 .env.*
+
+# Skills de terceros instaladas localmente.
+.claude/skills/
+skills-lock.json
