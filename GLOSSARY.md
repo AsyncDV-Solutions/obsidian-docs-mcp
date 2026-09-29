@@ -34,6 +34,10 @@ _Avoid_: log, bitácora, changelog de la nota
 El estado de un bloque gestionado cuyo contenido cambió fuera del MCP desde la última vez que el MCP lo escribió.
 _Avoid_: modificado, sucio, desincronizado
 
+**Texto libre**:
+Texto que aporta el modelo y que se escribe dentro de una nota. Tiene un tope de tamaño y no puede contener los marcadores de un bloque gestionado.
+_Avoid_: entrada, input, contenido del usuario
+
 **Versión de una nota**:
 La huella del contenido de una nota tal como se leyó. Un cambio preparado sobre esa nota solo se aplica si la nota sigue en esa versión.
 _Avoid_: hash, etag, revisión

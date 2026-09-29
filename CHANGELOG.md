@@ -6,8 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y l
 
 ### Corregido
 - Alcanzar el tope de escrituras por minuto (`LIMITE`) ya no consume el código de confirmación: en cuanto pasa la ventana, `cambio_aplicar` se puede reintentar con el mismo código.
+- El `motivo` de `tarea_cambiar_estado` y el `criterio_nuevo` de `tarea_actualizar` con espacios sobrantes ya no llegan sin recortar a la nota: se validaban y se descartaba el valor recortado.
 
 ### Cambiado
+- El tope de tamaño y la prohibición de `%% asyncdv:` valen ahora para todo el texto que entra en una nota, no solo para los campos que ya se revisaban, y el error nombra el campo (`«secciones.corregido[1]»` en vez de `«item»`). Los códigos `CAMPO_GRANDE` y `CAMPO_INVALIDO` siguen igual.
+- Interno: los preparadores limpian el texto al entrar y `prepararTareaNueva` devuelve la tarea repetida; los adaptadores de `herramientas/` quedan en parsear, llamar y responder, y sus esquemas comunes viven en `herramientas/comun.ts`.
 - La vista previa de crear un release cierra el contenido con `———`, como las demás creaciones, y todo reemplazo se rotula `Cambios en <ruta>:` (antes, crear una nota numerada decía `Actualizar _contadores.md:`).
 - Un bloque gestionado se escribe siempre con los saltos de línea de la nota: una nota nunca queda mezclada LF/CRLF.
 - Los avisos y los mensajes de conflicto son los mismos para todos los tipos de nota: el aviso del tablero dice «el bloque «tablero»», editar un release avisa si su bloque fue editado a mano, y editar una nota que cambió después de leerla responde «cambió desde que la leíste».
