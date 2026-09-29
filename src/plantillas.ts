@@ -17,9 +17,28 @@ export const PLANTILLAS = {
   incidencia: { campos: ['sintoma', 'impacto', 'causa'], bloques: ['historial'] },
   decision: { campos: ['contexto', 'decision', 'alternativas', 'consecuencias'], bloques: [] },
   release: { campos: [], bloques: ['release'] }, // su contenido lo genera el código dentro del bloque
-  guia: { campos: ['proposito', 'pasos', 'problemas', 'afirmaciones', 'pendientes'], bloques: [] }, // versión 1.1.0
+  // Versión 2.1.0: igual que la funcionalidad, para que guia_actualizar pueda reescribirla.
+  guia: { campos: [], bloques: ['proposito', 'pasos', 'problemas', 'afirmaciones', 'pendientes', 'historial'] },
 } as const;
 export type TipoPlantilla = keyof typeof PLANTILLAS;
+
+type Formato = { campos: readonly string[]; bloques: readonly string[] };
+
+// Formatos anteriores que una plantilla PROPIA (plantillas_dir) todavía puede usar, para no romperla
+// al actualizar el MCP. Crean la nota con sus campos {{…}}, pero sin bloques gestionados: esas notas
+// no se pueden editar con *_actualizar (dan BLOQUE_FALTA).
+const FORMATOS_ANTERIORES: Partial<Record<TipoPlantilla, Formato>> = {
+  guia: { campos: ['proposito', 'pasos', 'problemas', 'afirmaciones', 'pendientes'], bloques: [] }, // hasta la 2.0.0
+};
+
+// Qué le falta a la plantilla y qué campos {{…}} le sobran para calzar con un formato.
+function diferencias(texto: string, formato: Formato): { faltan: string[]; sobran: string[] } {
+  const usados = [...texto.matchAll(/\{\{([a-z_]+)\}\}/g)].map((m) => m[1] ?? '');
+  return {
+    faltan: [...formato.campos.filter((c) => !usados.includes(c)), ...formato.bloques.filter((b) => leerBloque(texto, b) === null)],
+    sobran: usados.filter((c) => !formato.campos.includes(c)),
+  };
+}
 
 const cache = new Map<string, string>();
 
@@ -47,12 +66,10 @@ export async function cargarPlantilla(tipo: TipoPlantilla, dirPropio: string | n
   } catch {
     throw new ErrorMcp('PLANTILLA_FALTA', `Falta la plantilla plantillas/${tipo}.md en el repo del MCP.`);
   }
-  const campos: readonly string[] = PLANTILLAS[tipo].campos;
-  const bloques: readonly string[] = PLANTILLAS[tipo].bloques;
-  const usados = [...texto.matchAll(/\{\{([a-z_]+)\}\}/g)].map((m) => m[1] ?? '');
-  const faltan = [...campos.filter((c) => !usados.includes(c)), ...bloques.filter((b) => leerBloque(texto, b) === null)];
-  const sobran = usados.filter((c) => !campos.includes(c));
-  if (faltan.length > 0 || sobran.length > 0) {
+  const { faltan, sobran } = diferencias(texto, PLANTILLAS[tipo]);
+  const anterior = FORMATOS_ANTERIORES[tipo];
+  const calzaConAnterior = propia !== null && anterior !== undefined && Object.values(diferencias(texto, anterior)).every((l) => l.length === 0);
+  if ((faltan.length > 0 || sobran.length > 0) && !calzaConAnterior) {
     throw new ErrorMcp('PLANTILLA_INVALIDA', `La plantilla ${origen} no calza: faltan [${faltan.join(', ')}], sobran [${sobran.join(', ')}].`);
   }
   cache.set(clave, texto);

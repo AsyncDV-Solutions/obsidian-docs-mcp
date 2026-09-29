@@ -2,6 +2,15 @@
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y las versiones, [SemVer](https://semver.org/lang/es/).
 
+## 2.1.0 — 2026-09-29
+
+### Añadido
+- `guia_actualizar`: prepara cambios en una guía existente con vista previa. Puede cambiar el título, el propósito, los pasos, los problemas frecuentes, las afirmaciones, `evidence`, `reviewed_commit`, las fuentes, el área, las relacionadas y los pendientes. Sigue las mismas reglas que `funcionalidad_actualizar`: la key no cambia, y cambiar afirmaciones, fuentes o `evidence` exige `reviewed_commit`.
+
+### Cambiado
+- La plantilla de guía por defecto guarda su contenido en bloques gestionados, igual que la de funcionalidad. Suma una sección «Notas», que el MCP no toca, y un historial.
+- Una `guia.md` propia (`plantillas_dir`) con el formato anterior, basado en campos `{{…}}`, se sigue aceptando: crea guías, pero sin bloques, así que `guia_actualizar` no puede editarlas (responde `BLOQUE_FALTA`).
+
 ## 2.0.0 — 2026-09-29
 
 Primera versión pública: todo lo propio de un proyecto pasa a la configuración.

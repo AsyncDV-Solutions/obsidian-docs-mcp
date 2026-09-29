@@ -99,12 +99,12 @@ Claude Desktop, Cursor, VS Code, Windsurf, Codex CLI, Gemini CLI y el modo endur
 
 **5. Dale las reglas al agente**: copia [docs/instrucciones-ia.md](docs/instrucciones-ia.md) en el `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` o las reglas de tu cliente. Y pídele: *«usa proyecto_estado»*.
 
-## Herramientas (20)
+## Herramientas (21)
 
 | Tipo | Herramientas |
 |---|---|
 | Consulta | `proyecto_estado`, `notas_buscar`, `nota_leer`, `items_listar` |
-| Preparan cambios (no escriben) | `tarea_crear`, `tarea_cambiar_estado`, `tarea_actualizar`, `funcionalidad_crear`, `funcionalidad_actualizar`, `guia_crear`, `adr_crear`, `incidencia_crear`, `tablero_regenerar`, `release_borrador_guardar` |
+| Preparan cambios (no escriben) | `tarea_crear`, `tarea_cambiar_estado`, `tarea_actualizar`, `funcionalidad_crear`, `funcionalidad_actualizar`, `guia_crear`, `guia_actualizar`, `adr_crear`, `incidencia_crear`, `tablero_regenerar`, `release_borrador_guardar` |
 | Escribe | `cambio_aplicar`: código de un solo uso que vence en 5 minutos. **Nunca la apruebes de forma automática.** |
 | Repo (solo lectura) | `repo_inventario`, `repo_archivo_leer`, `repo_git_resumen` |
 | Release y mantenimiento | `release_proponer` (solo texto: nunca crea tags), `notas_desactualizadas` |

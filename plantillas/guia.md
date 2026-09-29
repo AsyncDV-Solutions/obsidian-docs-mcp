@@ -1,16 +1,26 @@
 ## Para qué sirve
-{{proposito}}
+%% asyncdv:inicio proposito %%
+%% asyncdv:fin %%
 
 ## Cómo se usa
-{{pasos}}
+%% asyncdv:inicio pasos %%
+%% asyncdv:fin %%
 
 ## Problemas frecuentes
-{{problemas}}
+%% asyncdv:inicio problemas %%
+%% asyncdv:fin %%
 
 ## Afirmaciones y evidencia
-| Afirmación | Evidencia | Fuente |
-|---|---|---|
-{{afirmaciones}}
+%% asyncdv:inicio afirmaciones %%
+%% asyncdv:fin %%
 
 ## Pendientes
-{{pendientes}}
+%% asyncdv:inicio pendientes %%
+%% asyncdv:fin %%
+
+## Notas
+Texto libre tuyo: el MCP no lo toca.
+
+## Historial
+%% asyncdv:inicio historial %%
+%% asyncdv:fin %%

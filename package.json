@@ -1,6 +1,6 @@
 {
   "name": "obsidian-docs-mcp",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Servidor MCP local que documenta cualquier proyecto de código en un vault de Obsidian: tareas, funcionalidades, decisiones, incidencias y releases, siempre con vista previa y confirmación.",
   "license": "MIT",

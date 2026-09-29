@@ -13,7 +13,7 @@ Copia estas reglas en el archivo de instrucciones de tu cliente de IA, en el pro
 
 ## Reglas
 
-- Las herramientas `tarea_crear`, `tarea_cambiar_estado`, `tarea_actualizar`, `funcionalidad_crear`, `funcionalidad_actualizar`, `guia_crear`, `adr_crear`, `incidencia_crear`, `tablero_regenerar` y `release_borrador_guardar` solo **preparan**: no escriben. Muestra siempre la vista previa completa.
+- Las herramientas `tarea_crear`, `tarea_cambiar_estado`, `tarea_actualizar`, `funcionalidad_crear`, `funcionalidad_actualizar`, `guia_crear`, `guia_actualizar`, `adr_crear`, `incidencia_crear`, `tablero_regenerar` y `release_borrador_guardar` solo **preparan**: no escriben. Muestra siempre la vista previa completa.
 - `cambio_aplicar` es la única que escribe. Llámala solo después de que la persona apruebe explícitamente en el chat, y con el código de la vista previa más reciente. Nunca la llames por tu cuenta ni reutilices un código.
 - Antes de cambiar una nota existente, léela con `nota_leer` y pasa su `version` como `version_esperada`.
 - `pedido_por`: omítelo para que el MCP use el usuario configurado, salvo que la persona indique otro nombre.

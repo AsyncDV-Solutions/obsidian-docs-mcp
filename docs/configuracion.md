@@ -133,6 +133,8 @@ Una carpeta con archivos `tarea.md`, `funcionalidad.md`, `incidencia.md`, `decis
 
 Cada plantilla debe conservar sus campos `{{…}}` y sus bloques gestionados (`%% asyncdv:inicio … %%` / `%% asyncdv:fin %%`): el servidor lo comprueba al arrancar y no arranca si falta algo. La carpeta no puede estar dentro del vault. Si cambias una plantilla, reinicia el servidor.
 
+Una `guia.md` propia con el formato anterior a la 2.1.0 (campos `{{proposito}}`, `{{pasos}}`, `{{problemas}}`, `{{afirmaciones}}` y `{{pendientes}}`, sin bloques) se sigue aceptando. Las guías que crea no se pueden editar con `guia_actualizar`: para eso, copia la estructura de bloques de [`plantillas/guia.md`](../plantillas/guia.md).
+
 ### `limites`
 
 Topes de seguridad. Todos tienen un valor por defecto y rara vez hace falta tocarlos.

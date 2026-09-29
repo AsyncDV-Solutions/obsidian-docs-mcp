@@ -1,17 +1,26 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
-import { prepararActualizacionFuncionalidad, prepararAdr, prepararFuncionalidad, prepararGuia, prepararIncidencia } from '../documentos.ts';
+import type { Contexto } from '../arranque.ts';
+import {
+  prepararActualizacionFuncionalidad,
+  prepararActualizacionGuia,
+  prepararAdr,
+  prepararFuncionalidad,
+  prepararGuia,
+  prepararIncidencia,
+} from '../documentos.ts';
 import { EVIDENCIAS, PRIORIDADES, SEVERIDADES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { prepararTablero } from '../tablero.ts';
 import { ejecutar, quienPide, textoLibre } from './comun.ts';
-import type { Entorno } from './comun.ts';
+import type { Entorno, Vocabulario } from './comun.ts';
 import { FECHA, ID, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './tareas.ts';
 
 const FUENTE = z.string().min(3).max(300).regex(UNA_LINEA).describe('tipo:valor[@sha], p. ej. repo:src/pedidos/crear.ts@3e22c9c');
 const SHA = z.string().regex(/^[0-9a-f]{7,40}$/);
 const ID_FUNCIONALIDAD = z.string().regex(/^[A-Z]{2,5}-F-\d{4,}$/);
+const ID_GUIA = z.string().regex(/^[A-Z]{2,5}-G-\d{4,}$/);
 const TITULO = z.string().min(3).max(200).regex(UNA_LINEA);
 const KEY = z.string().regex(/^[a-z]+:[a-z0-9._/-]+$/);
 const AFIRMACIONES = z
@@ -21,6 +30,44 @@ const AFIRMACIONES = z
 
 function afirmacionesLibres(afirmaciones: z.infer<typeof AFIRMACIONES>, max: number): z.infer<typeof AFIRMACIONES> {
   return afirmaciones.map((a) => ({ ...a, afirmacion: textoLibre(a.afirmacion, 'afirmacion', max), fuente: textoLibre(a.fuente, 'fuente', max) }));
+}
+
+function opcionalLibre(valor: string | undefined, campo: string, max: number): string | undefined {
+  return valor === undefined ? undefined : textoLibre(valor, campo, max);
+}
+
+const DESCRIPCION_ACTUALIZAR =
+  'afirmaciones (reemplaza la tabla entera), evidence, reviewed_commit, fuentes (reemplaza la lista), área, relacionadas o pendientes. La key no cambia. Cambiar afirmaciones, fuentes o evidence exige reviewed_commit. Lee antes la nota con nota_leer: su versión va en version_esperada.';
+
+// Campos comunes de funcionalidad_actualizar y guia_actualizar (el id y los textos propios van aparte).
+function camposActualizacion(v: Vocabulario) {
+  return {
+    version_esperada: VERSION_NOTA,
+    pedido_por: PEDIDO_POR,
+    motivo: MOTIVO.optional().describe('Por qué se actualiza, p. ej. «crear.ts cambió en 3e22c9c»'),
+    titulo: TITULO.optional(),
+    afirmaciones: AFIRMACIONES.optional(),
+    evidence: z.enum(EVIDENCIAS).optional().describe('Evidencia de la nota completa'),
+    reviewed_commit: SHA.optional(),
+    fuentes: z.array(FUENTE).min(1).max(20).optional(),
+    area: z.array(z.enum(v.areas)).max(5).optional(),
+    relacionadas: z.array(ID).max(20).optional(),
+    pendientes: z.array(ID).max(20).optional(),
+  };
+}
+
+type ComunesActualizacion = { pedido_por?: string; motivo?: string; titulo?: string; afirmaciones?: z.infer<typeof AFIRMACIONES> };
+
+// Limpia los textos comunes de *_actualizar y resuelve pedido_por.
+function comunesLibres<T extends ComunesActualizacion>(ctx: Contexto, args: T): T & { pedido_por: string } {
+  const max = ctx.config.limites.campo_max_kb;
+  return {
+    ...args,
+    pedido_por: quienPide(ctx, args.pedido_por),
+    motivo: opcionalLibre(args.motivo, 'motivo', max),
+    titulo: opcionalLibre(args.titulo, 'titulo', max),
+    afirmaciones: args.afirmaciones === undefined ? undefined : afirmacionesLibres(args.afirmaciones, max),
+  };
 }
 
 export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
@@ -60,37 +107,18 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
   server.registerTool(
     'funcionalidad_actualizar',
     {
-      description:
-        'PREPARA cambios en una funcionalidad existente (no escribe): título, qué hace, afirmaciones (reemplaza la tabla entera), evidence, reviewed_commit, fuentes (reemplaza la lista), área, relacionadas o pendientes. La key no cambia. Cambiar afirmaciones, fuentes o evidence exige reviewed_commit. Lee antes la nota con nota_leer: su versión va en version_esperada.',
+      description: `PREPARA cambios en una funcionalidad existente (no escribe): título, qué hace, ${DESCRIPCION_ACTUALIZAR}`,
       inputSchema: z.object({
         id: ID_FUNCIONALIDAD,
-        version_esperada: VERSION_NOTA,
-        pedido_por: PEDIDO_POR,
-        motivo: MOTIVO.optional().describe('Por qué se actualiza, p. ej. «crear.ts cambió en 3e22c9c»'),
-        titulo: TITULO.optional(),
+        ...camposActualizacion(v),
         que_hace: z.string().min(1).optional(),
-        afirmaciones: AFIRMACIONES.optional(),
-        evidence: z.enum(EVIDENCIAS).optional().describe('Evidencia de la nota completa'),
-        reviewed_commit: SHA.optional(),
-        fuentes: z.array(FUENTE).min(1).max(20).optional(),
-        area: z.array(z.enum(v.areas)).max(5).optional(),
-        relacionadas: z.array(ID).max(20).optional(),
-        pendientes: z.array(ID).max(20).optional(),
       }),
       annotations: PREPARA,
     },
     async (args) =>
       ejecutar('funcionalidad_actualizar', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const datos = {
-          ...args,
-          pedido_por: quienPide(ctx, args.pedido_por),
-          motivo: args.motivo === undefined ? undefined : textoLibre(args.motivo, 'motivo', max),
-          titulo: args.titulo === undefined ? undefined : textoLibre(args.titulo, 'titulo', max),
-          que_hace: args.que_hace === undefined ? undefined : textoLibre(args.que_hace, 'que_hace', max),
-          afirmaciones: args.afirmaciones === undefined ? undefined : afirmacionesLibres(args.afirmaciones, max),
-        };
+        const datos = { ...comunesLibres(ctx, args), que_hace: opcionalLibre(args.que_hace, 'que_hace', ctx.config.limites.campo_max_kb) };
         return respuestaPreparada(await prepararActualizacionFuncionalidad(ctx, guardia, await indexar(guardia, ctx.config), datos));
       }),
   );
@@ -128,6 +156,34 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
           afirmaciones: afirmacionesLibres(args.afirmaciones, max),
         };
         return respuestaPreparada(await prepararGuia(ctx, guardia, await indexar(guardia, ctx.config), datos));
+      }),
+  );
+
+  // Versión 2.1.0
+  server.registerTool(
+    'guia_actualizar',
+    {
+      description: `PREPARA cambios en una guía existente (no escribe): título, propósito, pasos, problemas frecuentes, ${DESCRIPCION_ACTUALIZAR}`,
+      inputSchema: z.object({
+        id: ID_GUIA,
+        ...camposActualizacion(v),
+        proposito: z.string().min(1).optional().describe('Para qué sirve y a quién le sirve'),
+        pasos: z.string().min(1).optional().describe('Cómo se usa: pasos numerados en Markdown'),
+        problemas: z.string().optional().describe('Problemas frecuentes y qué hacer. Vacío deja «(ninguno registrado)»'),
+      }),
+      annotations: PREPARA,
+    },
+    async (args) =>
+      ejecutar('guia_actualizar', async () => {
+        const { ctx, guardia } = entorno.exigir();
+        const max = ctx.config.limites.campo_max_kb;
+        const datos = {
+          ...comunesLibres(ctx, args),
+          proposito: opcionalLibre(args.proposito, 'proposito', max),
+          pasos: opcionalLibre(args.pasos, 'pasos', max),
+          problemas: opcionalLibre(args.problemas, 'problemas', max),
+        };
+        return respuestaPreparada(await prepararActualizacionGuia(ctx, guardia, await indexar(guardia, ctx.config), datos));
       }),
   );
 

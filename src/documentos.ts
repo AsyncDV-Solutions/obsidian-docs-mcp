@@ -56,10 +56,6 @@ function envolver(texto: string): string {
   return `\n${texto}\n`;
 }
 
-// Bloques que funcionalidad_actualizar puede reescribir, en el orden en que aparecen en la nota.
-const BLOQUES_FUNCIONALIDAD = ['que_hace', 'afirmaciones', 'pendientes'] as const;
-type BloqueFuncionalidad = (typeof BLOQUES_FUNCIONALIDAD)[number];
-
 export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosFuncionalidad): Promise<Preparado> {
   exigirKeyLibre(indice, d.key);
   return prepararCreacion(ctx, guardia, indice, {
@@ -86,13 +82,15 @@ export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, ind
   });
 }
 
-export type DatosActualizacionFuncionalidad = {
+// ——— Actualizar notas con evidencia: funcionalidades (1.2.0) y guías (2.1.0) ———
+
+// Lo común a las dos: propiedades de revisión y los bloques de afirmaciones y pendientes.
+type DatosActualizacionConEvidencia = {
   id: string;
   version_esperada: string;
   pedido_por: string;
   motivo?: string;
   titulo?: string;
-  que_hace?: string;
   afirmaciones?: Afirmacion[];
   evidence?: string;
   reviewed_commit?: string;
@@ -102,16 +100,38 @@ export type DatosActualizacionFuncionalidad = {
   pendientes?: string[];
 };
 
-// Edita una funcionalidad existente. La key no cambia: es su identidad natural.
+export type DatosActualizacionFuncionalidad = DatosActualizacionConEvidencia & { que_hace?: string };
+export type DatosActualizacionGuia = DatosActualizacionConEvidencia & { proposito?: string; pasos?: string; problemas?: string };
+
+type TipoConEvidencia = { tipo: 'funcionalidad' | 'guia'; nombre: string; herramienta: string };
+
+export function prepararActualizacionFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosActualizacionFuncionalidad): Promise<Preparado> {
+  const tipo = { tipo: 'funcionalidad', nombre: 'la funcionalidad', herramienta: 'funcionalidad_actualizar' } as const;
+  return prepararActualizacionConEvidencia(ctx, guardia, indice, tipo, d, [['que_hace', d.que_hace]]);
+}
+
+export function prepararActualizacionGuia(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosActualizacionGuia): Promise<Preparado> {
+  const tipo = { tipo: 'guia', nombre: 'la guía', herramienta: 'guia_actualizar' } as const;
+  return prepararActualizacionConEvidencia(ctx, guardia, indice, tipo, d, [
+    ['proposito', d.proposito],
+    ['pasos', d.pasos],
+    ['problemas', d.problemas === undefined ? undefined : textoProblemas(d.problemas)],
+  ]);
+}
+
+// Edita una nota con evidencia. La key no cambia: es su identidad natural.
 // Solo reescribe propiedades de una lista cerrada y los bloques gestionados; «Notas» y todo lo
 // que esté fuera de los bloques queda igual, byte a byte.
-export async function prepararActualizacionFuncionalidad(
+// textos: los bloques de texto propios del tipo, en el orden en que aparecen en la nota.
+async function prepararActualizacionConEvidencia(
   ctx: Contexto,
   guardia: Guardia,
   indice: Indice,
-  d: DatosActualizacionFuncionalidad,
+  t: TipoConEvidencia,
+  d: DatosActualizacionConEvidencia,
+  textos: [string, string | undefined][],
 ): Promise<Preparado> {
-  const nota = notaVigente(indice, d.id, d.version_esperada, ['funcionalidad'], 'la funcionalidad');
+  const nota = notaVigente(indice, d.id, d.version_esperada, [t.tipo], t.nombre);
   // Afirmaciones, fuentes y evidencia son una revisión nueva: sin el SHA revisado no se sabe contra qué código valen.
   if ((d.afirmaciones !== undefined || d.fuentes !== undefined || d.evidence !== undefined) && d.reviewed_commit === undefined) {
     throw new ErrorMcp('FALTA_COMMIT', 'Cambiar afirmaciones, fuentes o evidence exige reviewed_commit: el SHA contra el que revisaste.');
@@ -127,8 +147,8 @@ export async function prepararActualizacionFuncionalidad(
   if (d.fuentes !== undefined) propiedades.push(['source', d.fuentes]);
   if (d.relacionadas !== undefined) propiedades.push(['related', enlacesA(ctx, indice, d.relacionadas)]);
 
-  const bloques = new Map<BloqueFuncionalidad, string>();
-  if (d.que_hace !== undefined) bloques.set('que_hace', d.que_hace);
+  const bloques = new Map<string, string>();
+  for (const [nombre, texto] of textos) if (texto !== undefined) bloques.set(nombre, texto);
   if (d.afirmaciones !== undefined) bloques.set('afirmaciones', tablaAfirmaciones(d.afirmaciones));
   if (d.pendientes !== undefined) bloques.set('pendientes', listaPendientes(ctx, indice, d.pendientes));
   if (propiedades.length === 0 && bloques.size === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
@@ -140,7 +160,7 @@ export async function prepararActualizacionFuncionalidad(
     if (bloque === null) {
       throw new ErrorMcp(
         'BLOQUE_FALTA',
-        `${nota.id} no tiene el bloque gestionado «${nombre}» (se creó a mano o con una plantilla anterior a la 1.2.0): edita esa sección a mano en Obsidian o agrégale sus marcadores.`,
+        `${nota.id} no tiene el bloque gestionado «${nombre}» (se creó a mano o con una plantilla sin bloques): edita esa sección a mano en Obsidian o agrégale sus marcadores.`,
       );
     }
     if (bloque.editadoAMano) avisos.push(`ATENCIÓN: el bloque «${nombre}» fue editado a mano; al aplicar se pierden esos cambios.`);
@@ -149,7 +169,7 @@ export async function prepararActualizacionFuncionalidad(
   const nombres = [...propiedades.map(([clave]) => clave), ...bloques.keys()];
   const detalles = [`pidió: ${d.pedido_por}`, d.motivo ? `motivo: ${d.motivo}` : ''].filter((x) => x !== '').join(' · ');
   return prepararEdicion(ctx, guardia, nota, {
-    herramienta: 'funcionalidad_actualizar',
+    herramienta: t.herramienta,
     historial: `actualizada: ${nombres.join(', ')} · ${detalles}`,
     editar: (doc) => {
       for (const [clave, valor] of propiedades) doc.set(clave, valor);
@@ -179,10 +199,17 @@ export type DatosGuia = {
   pendientes?: string[];
 };
 
+function textoProblemas(problemas: string | undefined): string {
+  return problemas === undefined || problemas === '' ? '(ninguno registrado)' : problemas;
+}
+
 // Una guía explica CÓMO usar algo que ya existe (un flujo, un agente, el sistema completo).
 // Lleva la misma evidencia que una funcionalidad, así que notas_desactualizadas también la revisa.
+// Desde la 2.1.0 su contenido va en bloques gestionados (guia_actualizar los reescribe).
 export async function prepararGuia(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosGuia): Promise<Preparado> {
   exigirKeyLibre(indice, d.key);
+  const problemas = textoProblemas(d.problemas);
+  const pendientes = listaPendientes(ctx, indice, d.pendientes);
   return prepararCreacion(ctx, guardia, indice, {
     tipo: 'guia',
     carpeta: ctx.config.carpetas.guias,
@@ -196,13 +223,16 @@ export async function prepararGuia(ctx: Contexto, guardia: Guardia, indice: Indi
       source: d.fuentes,
       related: enlacesA(ctx, indice, d.relacionadas),
     },
-    valores: {
-      proposito: d.proposito,
-      pasos: d.pasos,
-      problemas: d.problemas === undefined || d.problemas === '' ? '(ninguno registrado)' : d.problemas,
-      afirmaciones: filasAfirmaciones(d.afirmaciones),
-      pendientes: listaPendientes(ctx, indice, d.pendientes),
+    // Solo los usa una plantilla propia en el formato anterior a la 2.1.0 (campos {{…}}, sin bloques).
+    valores: { proposito: d.proposito, pasos: d.pasos, problemas, afirmaciones: filasAfirmaciones(d.afirmaciones), pendientes },
+    bloques: {
+      proposito: envolver(d.proposito),
+      pasos: envolver(d.pasos),
+      problemas: envolver(problemas),
+      afirmaciones: envolver(tablaAfirmaciones(d.afirmaciones)),
+      pendientes: envolver(pendientes),
     },
+    historial: `creada · revisada en ${d.reviewed_commit}`,
     herramienta: 'guia_crear',
   });
 }

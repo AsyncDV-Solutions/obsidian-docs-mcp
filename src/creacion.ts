@@ -1,6 +1,6 @@
 import { Document } from 'yaml';
 import type { Contexto } from './arranque.ts';
-import { escribirBloque } from './bloques.ts';
+import { escribirBloque, leerBloque } from './bloques.ts';
 import { diffLineas, guardarCambio } from './confirmaciones.ts';
 import type { Cambio } from './confirmaciones.ts';
 import { ahora, slug } from './dominio.ts';
@@ -35,7 +35,9 @@ export type PedidoCreacion = {
   titulo: string;
   propiedades: Record<string, unknown>; // las propias del tipo, en el orden deseado
   valores: Record<string, string>; // campos {{…}} de la plantilla
-  bloques?: Record<string, string>; // contenido de bloques gestionados de la plantilla (se escriben con huella)
+  // Contenido de los bloques gestionados (se escriben con huella). Una plantilla propia en un formato
+  // anterior no trae esos bloques: ese contenido entra por sus campos {{…}} y el bloque se omite.
+  bloques?: Record<string, string>;
   historial?: string; // primera línea del historial, si la plantilla lo tiene
   herramienta: string;
 };
@@ -78,10 +80,11 @@ export async function prepararCreacion(ctx: Contexto, guardia: Guardia, indice: 
     updated: momento.fechaHora,
   });
   let cuerpo = rellenar(await cargarPlantilla(p.tipo, ctx.plantillas), p.valores, '\n');
+  // cargarPlantilla ya garantizó los bloques del formato vigente: solo falta alguno en un formato anterior.
   for (const [nombre, contenido] of Object.entries(p.bloques ?? {})) {
-    cuerpo = escribirBloque(cuerpo, nombre, contenido.replace(/\r?\n/g, '\n'), '\n');
+    if (leerBloque(cuerpo, nombre) !== null) cuerpo = escribirBloque(cuerpo, nombre, contenido.replace(/\r?\n/g, '\n'), '\n');
   }
-  if (p.historial !== undefined) {
+  if (p.historial !== undefined && leerBloque(cuerpo, 'historial') !== null) {
     cuerpo = escribirBloque(cuerpo, 'historial', `- ${momento.legible} · ${p.historial} · ${p.herramienta}`, '\n');
   }
   const contenido = unirNota({ bom: false, eol: '\n', doc, cuerpo });

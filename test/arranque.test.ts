@@ -122,6 +122,15 @@ describe('validarArranque', () => {
     assert.deepEqual(codigos(await arrancar()), ['PLANTILLA_INVALIDA']);
   });
 
+  test('plantillas_dir: una guia.md propia que no calza ni con el formato vigente ni con el anterior se rechaza', async () => {
+    const propias = path.join(esc.base, 'plantillas-guia');
+    await mkdir(propias);
+    // Formato anterior a la 2.1.0, pero sin {{problemas}}.
+    await writeFile(path.join(propias, 'guia.md'), '## Para qué\n{{proposito}}\n## Uso\n{{pasos}}\n{{afirmaciones}}\n{{pendientes}}\n', 'utf8');
+    await esc.escribirConfig({ plantillas_dir: propias });
+    assert.deepEqual(codigos(await arrancar()), ['PLANTILLA_INVALIDA']);
+  });
+
   test('plantillas_dir dentro del vault se rechaza', async () => {
     const dentro = path.join(esc.vault, 'Plantillas');
     await mkdir(dentro);

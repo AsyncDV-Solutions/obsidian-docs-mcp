@@ -5,7 +5,14 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
-import { prepararActualizacionFuncionalidad, prepararAdr, prepararFuncionalidad, prepararGuia, prepararIncidencia } from '../src/documentos.ts';
+import {
+  prepararActualizacionFuncionalidad,
+  prepararActualizacionGuia,
+  prepararAdr,
+  prepararFuncionalidad,
+  prepararGuia,
+  prepararIncidencia,
+} from '../src/documentos.ts';
 import type { DatosFuncionalidad, DatosGuia } from '../src/documentos.ts';
 import { separarNota } from '../src/frontmatter.ts';
 import { crearGuardia } from '../src/guardia.ts';
@@ -189,8 +196,9 @@ describe('documentos y tablero', () => {
   test('una guía lleva su propio ID, estrena su contador y comparte las keys con las funcionalidades', async () => {
     const p = await prepararGuia(ctx, g, await indice(), GUIA);
     assert.match(p.vistaPrevia, /Crear Guias\/DEM-G-0001-primeros-pasos\.md/);
-    assert.match(p.vistaPrevia, /## Cómo se usa\n1\. Abre el admin\./);
-    assert.match(p.vistaPrevia, /\(ninguno registrado\)/);
+    assert.match(p.vistaPrevia, /## Cómo se usa\n%% asyncdv:inicio pasos h=[0-9a-f]{12} %%\n\n1\. Abre el admin\./);
+    assert.match(p.vistaPrevia, /%% asyncdv:inicio problemas h=[0-9a-f]{12} %%\n\n\(ninguno registrado\)\n\n%% asyncdv:fin %%/);
+    assert.match(p.vistaPrevia, /- .+ · creada · revisada en 8b4660d · guia_crear/);
     await aplicarCambio(ctx, g, p.confirmacion);
 
     const guia = (await indice()).notas.find((n) => n.tipo === 'guia') ?? assert.fail('falta la guía');
@@ -202,6 +210,75 @@ describe('documentos y tablero', () => {
     assert.equal(await codigoDe(prepararFuncionalidad(ctx, g, await indice(), { ...FUNCIONALIDAD, key: GUIA.key })), 'KEY_REPETIDA');
     await aplicarCambio(ctx, g, (await prepararFuncionalidad(ctx, g, await indice(), FUNCIONALIDAD)).confirmacion);
     assert.equal(await codigoDe(prepararGuia(ctx, g, await indice(), { ...GUIA, key: FUNCIONALIDAD.key })), 'KEY_REPETIDA');
+  });
+
+  // ——— Versión 2.1.0: guia_actualizar ———
+
+  const guia = async () => (await indice()).notas.find((n) => n.tipo === 'guia') ?? assert.fail('falta la guía');
+
+  test('guia_actualizar reescribe solo los bloques pedidos; la key y «Notas» no cambian', async () => {
+    await aplicarCambio(ctx, g, (await prepararGuia(ctx, g, await indice(), GUIA)).confirmacion);
+    const ruta = path.join(esc.proyecto, 'Guias', 'DEM-G-0001-primeros-pasos.md');
+    await writeFile(ruta, (await readFile(ruta, 'utf8')).replace('Texto libre tuyo: el MCP no lo toca.', 'Nota mía TESTIGO'), 'utf8');
+    const antes = await readFile(ruta, 'utf8');
+    const nota = await guia();
+
+    const p = await prepararActualizacionGuia(ctx, g, await indice(), {
+      id: nota.id,
+      version_esperada: nota.version,
+      pedido_por: 'Ana',
+      motivo: 'el panel cambió',
+      pasos: '1. Abre /admin.\n2. Elige el sitio.',
+      problemas: 'Si no carga, recarga la página.',
+    });
+    assert.equal(await readFile(ruta, 'utf8'), antes, 'preparar no escribe');
+    await aplicarCambio(ctx, g, p.confirmacion);
+
+    const texto = await readFile(ruta, 'utf8');
+    assert.match(texto, /1\. Abre \/admin\.\n2\. Elige el sitio\./);
+    assert.match(texto, /Si no carga, recarga la página\./);
+    assert.doesNotMatch(texto, /ninguno registrado/);
+    assert.match(texto, /Orienta a quien administra/, 'propósito no se pidió: sigue igual');
+    assert.match(texto, /actualizada: pasos, problemas · pidió: Ana · motivo: el panel cambió · guia_actualizar/);
+    assert.equal(fueraDeBloques(texto), fueraDeBloques(antes));
+    assert.equal((await guia()).datos.key, GUIA.key);
+
+    // Vaciar «problemas» vuelve al texto por defecto.
+    const actual = await guia();
+    await aplicarCambio(ctx, g, (await prepararActualizacionGuia(ctx, g, await indice(), { id: actual.id, version_esperada: actual.version, pedido_por: 'Ana', problemas: '' })).confirmacion);
+    assert.match(await readFile(ruta, 'utf8'), /\(ninguno registrado\)/);
+  });
+
+  test('guia_actualizar solo edita guías y comparte las reglas de funcionalidad_actualizar', async () => {
+    const f = await crearFuncionalidad();
+    await aplicarCambio(ctx, g, (await prepararGuia(ctx, g, await indice(), GUIA)).confirmacion);
+    const nota = await guia();
+    const base = { id: nota.id, version_esperada: nota.version, pedido_por: 'Ana' };
+    assert.equal(await codigoDe(prepararActualizacionGuia(ctx, g, await indice(), { id: f.id, version_esperada: f.version, pedido_por: 'Ana', pasos: 'x' })), 'NOTA_NO_EXISTE');
+    assert.equal(await codigoDe(prepararActualizacionGuia(ctx, g, await indice(), base)), 'SIN_CAMBIOS');
+    assert.equal(await codigoDe(prepararActualizacionGuia(ctx, g, await indice(), { ...base, afirmaciones: GUIA.afirmaciones })), 'FALTA_COMMIT');
+    assert.equal(await codigoDe(prepararActualizacionGuia(ctx, g, await indice(), { ...base, version_esperada: '0000000000000000', pasos: 'x' })), 'CONFLICTO');
+  });
+
+  test('una guia.md propia con el formato anterior a la 2.1.0 sigue creando guías, que no se pueden actualizar', async () => {
+    const propias = path.join(esc.base, 'plantillas-anteriores');
+    await mkdir(propias);
+    const anterior = ['## Para qué sirve', '{{proposito}}', '', '## Cómo se usa', '{{pasos}}', '', '## Problemas frecuentes', '{{problemas}}', '', '## Afirmaciones', '| Afirmación | Evidencia | Fuente |', '|---|---|---|', '{{afirmaciones}}', '', '## Pendientes', '{{pendientes}}', ''];
+    await writeFile(path.join(propias, 'guia.md'), anterior.join('\n'), 'utf8');
+    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 }, plantillas_dir: propias });
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok, 'el formato anterior de una plantilla propia se acepta');
+    ctx = estado.ctx;
+
+    await aplicarCambio(ctx, g, (await prepararGuia(ctx, g, await indice(), GUIA)).confirmacion);
+    const texto = await readFile(path.join(esc.proyecto, 'Guias', 'DEM-G-0001-primeros-pasos.md'), 'utf8');
+    assert.match(texto, /## Cómo se usa\n1\. Abre el admin\./);
+    assert.match(texto, /\|---\|---\|---\|\n\| El admin vive en \/admin \|/);
+    assert.doesNotMatch(texto, /asyncdv:inicio/);
+
+    const nota = await guia();
+    const d = { id: nota.id, version_esperada: nota.version, pedido_por: 'Ana', pasos: 'Nuevo.' };
+    assert.equal(await codigoDe(prepararActualizacionGuia(ctx, g, await indice(), d)), 'BLOQUE_FALTA');
   });
 
   test('sin la carpeta Guias no se prepara ninguna guía', async () => {
