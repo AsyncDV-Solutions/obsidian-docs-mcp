@@ -3,19 +3,10 @@ import { describe, test } from 'node:test';
 import { crearAlmacen, crearTope } from '../src/almacen.ts';
 import type { Cambio } from '../src/cambios.ts';
 import { ErrorMcp } from '../src/errores.ts';
+import { relojFalso } from './helpers.ts';
 
 const cambio = (descripcion: string): Cambio => ({ descripcion, operaciones: [] });
 const MINUTO = 60_000;
-
-// Un reloj que solo avanza cuando la prueba lo dice: el vencimiento se prueba sin esperar.
-function relojFalso(inicio = 1_700_000_000_000): (() => number) & { avanzar(ms: number): void } {
-  let ahora = inicio;
-  return Object.assign(() => ahora, {
-    avanzar(ms: number): void {
-      ahora += ms;
-    },
-  });
-}
 
 function codigoDe(accion: () => unknown): string {
   try {

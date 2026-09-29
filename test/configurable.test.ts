@@ -5,11 +5,10 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import { cargarConfig } from '../src/config.ts';
-import { crearGuardia } from '../src/guardia.ts';
 import { quienPide } from '../src/herramientas/comun.ts';
 import { buscarGit, iniciarProyecto } from '../src/iniciar.ts';
-import { indexar } from '../src/notas.ts';
 import { prepararTareaNueva } from '../src/tareas.ts';
+import { crearSesion } from '../src/sesion.ts';
 import { codigoDe, crearEscenario } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
@@ -92,13 +91,12 @@ describe('carpetas y usuario configurables', () => {
     await iniciarProyecto((await cargarConfig(esc.rutaConfig, {})).config);
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok);
-    const { ctx } = estado;
-    const g = crearGuardia(ctx.proyecto, ctx.config.limites);
+    const sesion = crearSesion(estado.ctx);
     const datos = { titulo: 'Probar carpetas', descripcion: 'x', criterios: ['y'], prioridad: 'P2', estado_inicial: 'Por hacer' as const };
-    const p = await prepararTareaNueva(ctx, g, await indexar(g, ctx.config), { ...datos, pedido_por: quienPide(ctx, undefined) });
+    const p = await prepararTareaNueva(sesion, { ...datos, pedido_por: quienPide(sesion, undefined) });
     assert.ok('confirmacion' in p, 'una tarea nueva no puede salir repetida');
-    await aplicarCambio(ctx, g, p.confirmacion);
-    const texto = await readFile(path.join(ctx.proyecto, 'Trabajo', 'Pendientes', 'DEM-T-0001-probar-carpetas.md'), 'utf8');
+    await aplicarCambio(sesion, p.confirmacion);
+    const texto = await readFile(path.join(sesion.proyecto, 'Trabajo', 'Pendientes', 'DEM-T-0001-probar-carpetas.md'), 'utf8');
     assert.match(texto, /pidió: Ana/);
   });
 

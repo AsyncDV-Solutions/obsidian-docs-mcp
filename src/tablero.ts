@@ -1,9 +1,9 @@
 import type { Contexto } from './arranque.ts';
+import type { Sesion } from './sesion.ts';
 import { regenerarBloque } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
 import { ESTADOS } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
-import type { Guardia } from './guardia.ts';
 import { enlace, idDeEnlace } from './ids.ts';
 import { comoLista, ordenPorPrioridad } from './notas.ts';
 import type { Indice, Nota } from './notas.ts';
@@ -48,9 +48,9 @@ export function generarTablero(ctx: Contexto, indice: Indice): string {
 }
 
 // Prepara el reemplazo del bloque «tablero». Devuelve null si ya está al día.
-export async function prepararTablero(ctx: Contexto, guardia: Guardia, indice: Indice): Promise<Preparado | null> {
+export async function prepararTablero(sesion: Sesion): Promise<Preparado | null> {
   try {
-    return await regenerarBloque(ctx, guardia, RUTA_TABLERO, 'tablero', generarTablero(ctx, indice));
+    return await regenerarBloque(sesion, RUTA_TABLERO, 'tablero', generarTablero(sesion, await sesion.indice()));
   } catch (error) {
     if (error instanceof ErrorMcp && error.codigo === 'NOTA_NO_EXISTE') {
       throw new ErrorMcp('TABLERO_FALTA', `Falta ${RUTA_TABLERO}: créalo con «pnpm run iniciar».`);

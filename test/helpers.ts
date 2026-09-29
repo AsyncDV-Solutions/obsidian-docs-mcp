@@ -140,3 +140,13 @@ export async function codigoDe(promesa: Promise<unknown>): Promise<string> {
     return (error as { codigo?: string }).codigo ?? 'OTRO';
   }
 }
+
+// Un reloj que solo avanza cuando la prueba lo dice: el vencimiento y el tope se prueban sin esperar.
+export function relojFalso(inicio = 1_700_000_000_000): (() => number) & { avanzar(ms: number): void } {
+  let ahora = inicio;
+  return Object.assign(() => ahora, {
+    avanzar(ms: number): void {
+      ahora += ms;
+    },
+  });
+}

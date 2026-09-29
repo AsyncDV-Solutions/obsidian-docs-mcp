@@ -4,7 +4,7 @@ import { permisosDeNodeActivos } from '../arranque.ts';
 import { ESTADOS, PRIORIDADES, TIPOS, TIPOS_ITEM } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { formatearId, idDeRelease } from '../ids.ts';
-import { buscar, conteoDeNotas, estadoDe, filtrar, indexar, leerNota, ordenPorPrioridad } from '../notas.ts';
+import { buscar, conteoDeNotas, estadoDe, filtrar, leerNota, ordenPorPrioridad } from '../notas.ts';
 import { NOMBRE, VERSION } from '../version.ts';
 import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
@@ -52,11 +52,11 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
             structuredContent: { ...base, configuracion: 'con_problemas', problemas, conteos: {}, anomalias: [], truncado: false },
           };
         }
-        const { ctx, guardia } = entorno.exigir();
-        const indice = await indexar(guardia, ctx.config);
+        const sesion = entorno.exigir();
+        const indice = await sesion.indice();
         const conteos = conteoDeNotas(indice);
         const texto = [
-          `${NOMBRE} ${VERSION} | Node ${process.version} | proyecto ${ctx.config.project_id}: configuración OK | permisos de Node: ${permisos}`,
+          `${NOMBRE} ${VERSION} | Node ${process.version} | proyecto ${sesion.config.project_id}: configuración OK | permisos de Node: ${permisos}`,
           `Notas del proyecto: ${indice.notas.length}${indice.truncado ? ' (se alcanzó el tope: el índice está truncado)' : ''}.`,
           ...Object.entries(conteos).map(([clave, n]) => `- ${clave}: ${n}`),
           indice.anomalias.length === 0 ? 'Sin anomalías.' : `Anomalías (${indice.anomalias.length}); el MCP no las corrige:`,
@@ -83,9 +83,9 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
     },
     async ({ texto, tipo, estado, area }) =>
       ejecutar('notas_buscar', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const indice = await indexar(guardia, ctx.config);
-        const hallazgos = buscar(indice, texto, { tipo, estado, area }, ctx.config.limites.resultados_max);
+        const sesion = entorno.exigir();
+        const indice = await sesion.indice();
+        const hallazgos = buscar(indice, texto, { tipo, estado, area }, sesion.config.limites.resultados_max);
         if (hallazgos.length === 0) return ok('Sin resultados.');
         const lineas = hallazgos.map((h) => `- ${h.id || '(sin id)'} · ${h.titulo} · ${h.ruta}${h.fragmento ? `\n  «…${h.fragmento}…»` : ''}`);
         return ok([AVISO_DATOS, `${hallazgos.length} resultado(s):`, ...lineas].join('\n'));
@@ -105,8 +105,8 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
     },
     async ({ id, ruta }) =>
       ejecutar('nota_leer', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const leida = await leerNota(guardia, ctx.config, { id, ruta });
+        const sesion = entorno.exigir();
+        const leida = await leerNota(sesion.guardia, sesion.config, { id, ruta });
         return ok([`ruta: ${leida.ruta}`, `version: ${leida.version}`, AVISO_DATOS, '———', leida.texto].join('\n'));
       }),
   );
@@ -129,10 +129,10 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
     },
     async (filtros) =>
       ejecutar('items_listar', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const indice = await indexar(guardia, ctx.config);
+        const sesion = entorno.exigir();
+        const indice = await sesion.indice();
         const todas = filtrar(indice, filtros).sort(ordenPorPrioridad);
-        const items = todas.slice(0, ctx.config.limites.resultados_max).map((n) => ({
+        const items = todas.slice(0, sesion.config.limites.resultados_max).map((n) => ({
           id: n.id,
           titulo: n.titulo,
           tipo: n.tipo,

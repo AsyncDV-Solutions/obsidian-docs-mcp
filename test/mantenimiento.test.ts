@@ -3,9 +3,8 @@ import { test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
 import { ErrorMcp } from '../src/errores.ts';
 import { notasDesactualizadas } from '../src/mantenimiento.ts';
-import { crearGuardia } from '../src/guardia.ts';
-import { indexar } from '../src/notas.ts';
 import type { Indice, Nota } from '../src/notas.ts';
+import { crearSesion } from '../src/sesion.ts';
 import { consultasGitFalsas } from './consultas-git-falsas.ts';
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, notaTarea, rutaGit } from './helpers.ts';
 
@@ -20,12 +19,12 @@ test('fuente desactualizada', async () => {
     await escribirNota(esc.proyecto, 'Tareas/DEM-T-0001-a.md', notaTarea({ id: 'DEM-T-0001', titulo: 'A', extra: [`source:\n  - repo:docs/a.md@${sha}`] }));
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok);
-    const g = crearGuardia(estado.ctx.proyecto, estado.ctx.config.limites);
-    const antes = await notasDesactualizadas(estado.ctx, await indexar(g, estado.ctx.config));
+    const sesion = crearSesion(estado.ctx);
+    const antes = await notasDesactualizadas(sesion);
     assert.deepEqual([antes.desactualizadas.length, antes.revisadas], [0, 1]);
     await escribirNota(esc.repo, 'docs/a.md', 'a2\n');
     commitear(esc.repo, 'docs: cambia a');
-    const despues = await notasDesactualizadas(estado.ctx, await indexar(g, estado.ctx.config));
+    const despues = await notasDesactualizadas(sesion);
     assert.equal(despues.desactualizadas.length, 1);
     assert.equal(despues.desactualizadas[0]?.id, 'DEM-T-0001');
   } finally {
@@ -61,7 +60,8 @@ test('qué fuentes se comparan con git, cuáles se omiten y cuántas se revisan 
       truncado: false,
     };
 
-    const r = await notasDesactualizadas(ctx, indice);
+    const sesion = { ...crearSesion(ctx), indice: async () => indice }; // el índice de mentira: lo que la sesión leería del vault
+    const r = await notasDesactualizadas(sesion);
     assert.deepEqual(
       r.desactualizadas.map((d) => [d.id, d.fuente, d.commit]),
       [
@@ -74,7 +74,7 @@ test('qué fuentes se comparan con git, cuáles se omiten y cuántas se revisan 
     assert.deepEqual([r.revisadas, r.omitidas], [4, 3]);
     assert.deepEqual(consultadas, ['aaaaaaa docs/a.md', 'bbbbbbb docs/b.md', 'bbbbbbb docs/guia.md', 'ccccccc docs/c.md'], 'el archivo excluido y la ruta inválida no llegan a git');
 
-    const tope = await notasDesactualizadas(ctx, indice, 2);
+    const tope = await notasDesactualizadas(sesion, 2);
     assert.deepEqual([tope.revisadas, tope.omitidas], [2, 4], 'pasado el tope, lo demás se omite');
   } finally {
     await esc.limpiar();
@@ -89,7 +89,7 @@ test('sin git_path notasDesactualizadas responde GIT_NO_CONFIGURADO en vez de om
     assert.ok(estado.ok);
     const nota: Nota = { ruta: 'Tareas/DEM-T-0001.md', version: 'v', id: 'DEM-T-0001', tipo: 'tarea', titulo: 'A', datos: { source: ['repo:docs/a.md@aaaaaaa'] }, cuerpo: '' };
     const indice: Indice = { notas: [nota], anomalias: [], truncado: false };
-    assert.equal(await codigoDe(notasDesactualizadas(estado.ctx, indice)), 'GIT_NO_CONFIGURADO');
+    assert.equal(await codigoDe(notasDesactualizadas({ ...crearSesion(estado.ctx), indice: async () => indice })), 'GIT_NO_CONFIGURADO');
   } finally {
     await esc.limpiar();
   }

@@ -4,12 +4,11 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
-import type { Contexto } from '../src/arranque.ts';
-import { crearGuardia } from '../src/guardia.ts';
-import type { Guardia } from '../src/guardia.ts';
+import { crearSesion } from '../src/sesion.ts';
+import type { Sesion } from '../src/sesion.ts';
 import { codigoDe, crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-import { comoLista, filtrar, indexar } from '../src/notas.ts';
+import { comoLista, filtrar } from '../src/notas.ts';
 import type { Nota } from '../src/notas.ts';
 import type { Preparado } from '../src/cambios.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../src/tareas.ts';
@@ -27,11 +26,10 @@ const ARCHIVO = 'DEM-T-0001-encender-el-correo-por-cliente.md';
 
 describe('tareas de punta a punta', () => {
   let esc: Escenario;
-  let ctx: Contexto;
-  let g: Guardia;
-  const indice = () => indexar(g, ctx.config);
+  let sesion: Sesion;
+  const indice = () => sesion.indice();
   const crear = async (d: Partial<DatosTareaNueva> = {}): Promise<Preparado> => {
-    const p = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, ...d });
+    const p = await prepararTareaNueva(sesion, { ...BASE, ...d });
     return 'repetida' in p ? assert.fail(`ya existe ${p.repetida.id}`) : p;
   };
   const tarea = async (id: string): Promise<Nota> => (await indice()).notas.find((n) => n.id === id) ?? assert.fail(`no existe ${id}`);
@@ -43,8 +41,7 @@ describe('tareas de punta a punta', () => {
     await mkdir(path.join(esc.proyecto, 'Tareas'));
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok, 'el escenario debería arrancar');
-    ctx = estado.ctx;
-    g = crearGuardia(ctx.proyecto, ctx.config.limites);
+    sesion = crearSesion(estado.ctx);
   });
   afterEach(async () => {
     await esc.limpiar();
@@ -54,7 +51,7 @@ describe('tareas de punta a punta', () => {
     const p = await crear();
     assert.match(p.vistaPrevia, /DEM-T-0001/);
     assert.deepEqual(await readdir(path.join(esc.proyecto, 'Tareas')), []);
-    await aplicarCambio(ctx, g, p.confirmacion);
+    await aplicarCambio(sesion, p.confirmacion);
     assert.deepEqual(await readdir(path.join(esc.proyecto, 'Tareas')), [ARCHIVO]);
     assert.match(await readFile(path.join(esc.proyecto, '_contadores.md'), 'utf8'), /ultimo_T: 1/);
     assert.deepEqual((await indice()).anomalias, []);
@@ -68,72 +65,72 @@ describe('tareas de punta a punta', () => {
   });
 
   test('no duplica una tarea abierta con el mismo título, pero sí una completada', async () => {
-    await aplicarCambio(ctx, g, (await crear()).confirmacion);
-    const repetida = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, titulo: '  ENCÉNDER   el correo por cliente ' });
+    await aplicarCambio(sesion, (await crear()).confirmacion);
+    const repetida = await prepararTareaNueva(sesion, { ...BASE, titulo: '  ENCÉNDER   el correo por cliente ' });
     assert.ok('repetida' in repetida, 'sin mayúsculas, sin tildes y con espacios sobrantes debería ser la misma tarea');
     assert.equal(repetida.repetida.id, 'DEM-T-0001');
-    const pendienteSinMotivo = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, estado_inicial: 'Pendiente' });
+    const pendienteSinMotivo = await prepararTareaNueva(sesion, { ...BASE, estado_inicial: 'Pendiente' });
     assert.ok('repetida' in pendienteSinMotivo, 'la repetida se detecta antes de exigir el motivo de «Pendiente»');
     await escribirNota(esc.proyecto, 'Tareas/DEM-T-0005-cerrada.md', notaTarea({ id: 'DEM-T-0005', titulo: 'Cerrada', estado: 'Completado' }));
-    const nueva = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, titulo: 'Cerrada' });
+    const nueva = await prepararTareaNueva(sesion, { ...BASE, titulo: 'Cerrada' });
     assert.ok('confirmacion' in nueva, 'una tarea completada no cuenta como repetida');
   });
 
   test('el texto libre se limpia al entrar: un marcador de bloque se rechaza y lo demás se recorta', async () => {
     assert.equal(await codigoDe(crear({ descripcion: 'hola %% asyncdv:fin %%' })), 'CAMPO_INVALIDO');
-    await aplicarCambio(ctx, g, (await crear()).confirmacion);
+    await aplicarCambio(sesion, (await crear()).confirmacion);
     const ruta = path.join(esc.proyecto, 'Tareas', ARCHIVO);
 
     const t1 = await tarea('DEM-T-0001');
     const conMarcador = { id: t1.id, version_esperada: t1.version, pedido_por: 'Ana', estado: 'Pendiente' as const, motivo: 'x %% asyncdv:fin %%' };
-    assert.equal(await codigoDe(prepararCambioEstado(ctx, g, await indice(), conMarcador)), 'CAMPO_INVALIDO');
-    const estado = await prepararCambioEstado(ctx, g, await indice(), { id: t1.id, version_esperada: t1.version, pedido_por: 'Ana', estado: 'Pendiente', motivo: '  espera la promoción  ' });
-    await aplicarCambio(ctx, g, (estado ?? assert.fail('debería haber un cambio')).confirmacion);
+    assert.equal(await codigoDe(prepararCambioEstado(sesion, conMarcador)), 'CAMPO_INVALIDO');
+    const estado = await prepararCambioEstado(sesion, { id: t1.id, version_esperada: t1.version, pedido_por: 'Ana', estado: 'Pendiente', motivo: '  espera la promoción  ' });
+    await aplicarCambio(sesion, (estado ?? assert.fail('debería haber un cambio')).confirmacion);
     assert.match(await readFile(ruta, 'utf8'), /Por hacer → Pendiente · pidió: Ana · motivo: espera la promoción · tarea_cambiar_estado/);
 
     const t2 = await tarea('DEM-T-0001');
-    const criterio = await prepararActualizacion(ctx, g, await indice(), { id: t2.id, version_esperada: t2.version, pedido_por: 'Ana', criterio_nuevo: '  Flag apagado  ' });
-    await aplicarCambio(ctx, g, criterio.confirmacion);
+    const criterio = await prepararActualizacion(sesion, { id: t2.id, version_esperada: t2.version, pedido_por: 'Ana', criterio_nuevo: '  Flag apagado  ' });
+    await aplicarCambio(sesion, criterio.confirmacion);
     assert.match(await readFile(ruta, 'utf8'), /- \[ \] Flag apagado\n/);
     const t3 = await tarea('DEM-T-0001');
-    assert.equal(await codigoDe(prepararActualizacion(ctx, g, await indice(), { id: t3.id, version_esperada: t3.version, pedido_por: 'Ana', criterio_nuevo: '%% asyncdv:fin %%' })), 'CAMPO_INVALIDO');
+    assert.equal(await codigoDe(prepararActualizacion(sesion, { id: t3.id, version_esperada: t3.version, pedido_por: 'Ana', criterio_nuevo: '%% asyncdv:fin %%' })), 'CAMPO_INVALIDO');
   });
 
   test('un código de confirmación sirve una sola vez', async () => {
     const p = await crear();
-    await aplicarCambio(ctx, g, p.confirmacion);
-    assert.equal(await codigoDe(aplicarCambio(ctx, g, p.confirmacion)), 'CONFIRMACION_INVALIDA');
+    await aplicarCambio(sesion, p.confirmacion);
+    assert.equal(await codigoDe(aplicarCambio(sesion, p.confirmacion)), 'CONFIRMACION_INVALIDA');
   });
 
   test('si otra creación avanzó el contador, la vista previa vieja se rechaza', async () => {
     const vieja = await crear();
-    await aplicarCambio(ctx, g, (await crear({ titulo: 'Otra' })).confirmacion);
-    assert.equal(await codigoDe(aplicarCambio(ctx, g, vieja.confirmacion)), 'CONFLICTO');
+    await aplicarCambio(sesion, (await crear({ titulo: 'Otra' })).confirmacion);
+    assert.equal(await codigoDe(aplicarCambio(sesion, vieja.confirmacion)), 'CONFLICTO');
   });
 
   test('las transiciones inválidas se rechazan y repetir el estado no hace nada', async () => {
-    await aplicarCambio(ctx, g, (await crear()).confirmacion);
+    await aplicarCambio(sesion, (await crear()).confirmacion);
     const t = await tarea('DEM-T-0001');
     const pedido = { id: t.id, version_esperada: t.version, pedido_por: 'Ana' };
-    assert.equal(await codigoDe(prepararCambioEstado(ctx, g, await indice(), { ...pedido, estado: 'Bloqueado' })), 'TRANSICION');
-    assert.equal(await codigoDe(prepararCambioEstado(ctx, g, await indice(), { ...pedido, estado: 'Completado', resolution: 'hecha' })), 'TRANSICION');
-    assert.equal(await prepararCambioEstado(ctx, g, await indice(), { ...pedido, estado: 'Por hacer' }), null);
+    assert.equal(await codigoDe(prepararCambioEstado(sesion, { ...pedido, estado: 'Bloqueado' })), 'TRANSICION');
+    assert.equal(await codigoDe(prepararCambioEstado(sesion, { ...pedido, estado: 'Completado', resolution: 'hecha' })), 'TRANSICION');
+    assert.equal(await prepararCambioEstado(sesion, { ...pedido, estado: 'Por hacer' }), null);
   });
 
   test('el historial crece y lo no gestionado queda idéntico, también con CRLF', async () => {
-    await aplicarCambio(ctx, g, (await crear()).confirmacion);
+    await aplicarCambio(sesion, (await crear()).confirmacion);
     const ruta = path.join(esc.proyecto, 'Tareas', ARCHIVO);
     const crlf = (await readFile(ruta, 'utf8')).replaceAll('\n', '\r\n').replace('Texto libre tuyo', 'Mis notas ÚNICAS');
     await writeFile(ruta, crlf, 'utf8');
     const t = await tarea('DEM-T-0001');
-    const p = await prepararCambioEstado(ctx, g, await indice(), {
+    const p = await prepararCambioEstado(sesion, {
       id: t.id,
       version_esperada: t.version,
       pedido_por: 'Ana',
       estado: 'Bloqueado',
       blocked_reason: 'Espera la promoción',
     });
-    await aplicarCambio(ctx, g, (p ?? assert.fail('debería haber un cambio')).confirmacion);
+    await aplicarCambio(sesion, (p ?? assert.fail('debería haber un cambio')).confirmacion);
     const final = await readFile(ruta, 'utf8');
     assert.ok(!/[^\r]\n/.test(final), 'apareció un salto LF suelto');
     const seccionNotas = (texto: string) => texto.slice(texto.indexOf('## Notas'), texto.indexOf('## Historial'));
@@ -143,35 +140,35 @@ describe('tareas de punta a punta', () => {
   });
 
   test('tarea_actualizar cambia campos, null quita uno, agrega un criterio y exige la versión leída', async () => {
-    await aplicarCambio(ctx, g, (await crear({ responsable: 'Ana' })).confirmacion);
+    await aplicarCambio(sesion, (await crear({ responsable: 'Ana' })).confirmacion);
     const t = await tarea('DEM-T-0001');
     const pedido = { id: t.id, version_esperada: t.version, pedido_por: 'Ana' };
-    assert.equal(await codigoDe(prepararActualizacion(ctx, g, await indice(), pedido)), 'SIN_CAMBIOS');
-    const p = await prepararActualizacion(ctx, g, await indice(), { ...pedido, prioridad: 'P0', responsable: null, criterio_nuevo: 'Flag apagado' });
-    await aplicarCambio(ctx, g, p.confirmacion);
+    assert.equal(await codigoDe(prepararActualizacion(sesion, pedido)), 'SIN_CAMBIOS');
+    const p = await prepararActualizacion(sesion, { ...pedido, prioridad: 'P0', responsable: null, criterio_nuevo: 'Flag apagado' });
+    await aplicarCambio(sesion, p.confirmacion);
     const texto = await readFile(path.join(esc.proyecto, 'Tareas', ARCHIVO), 'utf8');
     assert.match(texto, /^priority: P0$/m);
     assert.doesNotMatch(texto, /^assignee:/m);
     assert.match(texto, /- \[ \] Flag encendido\n- \[ \] Flag apagado\n/);
     assert.match(texto, /actualizada: priority, assignee, criterio · pidió: Ana · tarea_actualizar/);
-    assert.equal(await codigoDe(prepararActualizacion(ctx, g, await indice(), { ...pedido, prioridad: 'P1' })), 'CONFLICTO', 'la versión leída antes de aplicar ya no vale');
+    assert.equal(await codigoDe(prepararActualizacion(sesion, { ...pedido, prioridad: 'P1' })), 'CONFLICTO', 'la versión leída antes de aplicar ya no vale');
   });
 
   test('si la nota cambió después de la vista previa, no se escribe nada', async () => {
-    await aplicarCambio(ctx, g, (await crear()).confirmacion);
+    await aplicarCambio(sesion, (await crear()).confirmacion);
     const t = await tarea('DEM-T-0001');
-    const p = await prepararCambioEstado(ctx, g, await indice(), { id: t.id, version_esperada: t.version, pedido_por: 'Ana', estado: 'En curso' });
+    const p = await prepararCambioEstado(sesion, { id: t.id, version_esperada: t.version, pedido_por: 'Ana', estado: 'En curso' });
     const ruta = path.join(esc.proyecto, t.ruta);
     await writeFile(ruta, `${await readFile(ruta, 'utf8')}\nEditado en Obsidian.\n`, 'utf8');
     const antes = await readFile(ruta, 'utf8');
-    assert.equal(await codigoDe(aplicarCambio(ctx, g, (p ?? assert.fail('debería haber un cambio')).confirmacion)), 'CONFLICTO');
+    assert.equal(await codigoDe(aplicarCambio(sesion, (p ?? assert.fail('debería haber un cambio')).confirmacion)), 'CONFLICTO');
     assert.equal(await readFile(ruta, 'utf8'), antes);
     assert.deepEqual((await readdir(path.dirname(ruta))).filter((n) => n.endsWith('.tmp')), []);
   });
 
   test('si otra sesión está escribiendo, se espera el turno', async () => {
     await writeFile(path.join(esc.dirConfig, 'escritura.lock'), 'otra sesión', 'utf8');
-    assert.equal(await codigoDe(aplicarCambio(ctx, g, (await crear()).confirmacion)), 'BLOQUEO_OCUPADO');
+    assert.equal(await codigoDe(aplicarCambio(sesion, (await crear()).confirmacion)), 'BLOQUEO_OCUPADO');
   });
 
   test('un bloqueo de hace más de un minuto se avisa como antiguo y no se borra solo', async () => {
@@ -179,24 +176,24 @@ describe('tareas de punta a punta', () => {
     await writeFile(bloqueo, 'sesión que murió', 'utf8');
     const haceDosMinutos = new Date(Date.now() - 120_000);
     await utimes(bloqueo, haceDosMinutos, haceDosMinutos);
-    assert.equal(await codigoDe(aplicarCambio(ctx, g, (await crear()).confirmacion)), 'BLOQUEO_ANTIGUO');
+    assert.equal(await codigoDe(aplicarCambio(sesion, (await crear()).confirmacion)), 'BLOQUEO_ANTIGUO');
     assert.equal(await readFile(bloqueo, 'utf8'), 'sesión que murió', 'lo borra la persona, no el MCP');
   });
 
   // Decisión pendiente: al salir de «Bloqueado» no se borran blocked_by ni blocked_reason, y filtrar por
   // depende_de sigue encontrando la tarea aunque ya no esté bloqueada. Esta prueba fija lo que pasa hoy.
   test('hoy, al salir de «Bloqueado» la tarea conserva blocked_by y blocked_reason', async () => {
-    await aplicarCambio(ctx, g, (await crear()).confirmacion);
-    await aplicarCambio(ctx, g, (await crear({ titulo: 'Otra tarea' })).confirmacion);
+    await aplicarCambio(sesion, (await crear()).confirmacion);
+    await aplicarCambio(sesion, (await crear({ titulo: 'Otra tarea' })).confirmacion);
     const pedido = { pedido_por: 'Ana' };
 
     const antes = await tarea('DEM-T-0002');
-    const bloquear = await prepararCambioEstado(ctx, g, await indice(), { ...pedido, id: antes.id, version_esperada: antes.version, estado: 'Bloqueado', blocked_by: ['DEM-T-0001'], blocked_reason: 'espera la key' });
-    await aplicarCambio(ctx, g, (bloquear ?? assert.fail('debería haber un cambio')).confirmacion);
+    const bloquear = await prepararCambioEstado(sesion, { ...pedido, id: antes.id, version_esperada: antes.version, estado: 'Bloqueado', blocked_by: ['DEM-T-0001'], blocked_reason: 'espera la key' });
+    await aplicarCambio(sesion, (bloquear ?? assert.fail('debería haber un cambio')).confirmacion);
 
     const bloqueada = await tarea('DEM-T-0002');
-    const liberar = await prepararCambioEstado(ctx, g, await indice(), { ...pedido, id: bloqueada.id, version_esperada: bloqueada.version, estado: 'En curso' });
-    await aplicarCambio(ctx, g, (liberar ?? assert.fail('debería haber un cambio')).confirmacion);
+    const liberar = await prepararCambioEstado(sesion, { ...pedido, id: bloqueada.id, version_esperada: bloqueada.version, estado: 'En curso' });
+    await aplicarCambio(sesion, (liberar ?? assert.fail('debería haber un cambio')).confirmacion);
 
     const liberada = await tarea('DEM-T-0002');
     assert.equal(liberada.datos.status, 'En curso');

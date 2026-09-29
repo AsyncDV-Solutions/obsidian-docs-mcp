@@ -19,12 +19,12 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
     },
     async ({ categoria }) =>
       ejecutar('repo_inventario', async () => {
-        const { ctx } = entorno.exigir();
-        const grupos = (await inventario(ctx)).filter((g) => categoria === undefined || g.categoria === categoria);
-        const head = await ctx.consultasGit.cabezaCorta();
+        const sesion = entorno.exigir();
+        const grupos = (await inventario(sesion)).filter((g) => categoria === undefined || g.categoria === categoria);
+        const head = await sesion.consultasGit.cabezaCorta();
         const lineas = [`Repo de ${v.nombre} @ ${head} (clon local, sin fetch).`];
         for (const g of grupos) {
-          lineas.push('', `${g.descripcion} (${g.rutas.length}):`, ...g.rutas.map((r) => `- ${r}${esDocHistorico(ctx, r) ? ' (histórico: preferir el código)' : ''}`));
+          lineas.push('', `${g.descripcion} (${g.rutas.length}):`, ...g.rutas.map((r) => `- ${r}${esDocHistorico(sesion, r) ? ' (histórico: preferir el código)' : ''}`));
         }
         return ok(lineas.join('\n'));
       }),
@@ -39,11 +39,11 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
     },
     async ({ ruta }) =>
       ejecutar('repo_archivo_leer', async () => {
-        const { ctx } = entorno.exigir();
-        const contenido = await leerArchivoRepo(ctx, ruta);
+        const sesion = entorno.exigir();
+        const contenido = await leerArchivoRepo(sesion, ruta);
         const relativa = validarRelativaRepo(ruta);
-        const head = await ctx.consultasGit.cabezaCorta();
-        const conCambios = await ctx.consultasGit.archivoConCambios(relativa);
+        const head = await sesion.consultasGit.cabezaCorta();
+        const conCambios = await sesion.consultasGit.archivoConCambios(relativa);
         return ok(
           [
             `fuente: ${fuenteRepo(relativa, head)}${conCambios ? AVISO_CAMBIOS : ''}`,
@@ -63,8 +63,8 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
     },
     async () =>
       ejecutar('repo_git_resumen', async () => {
-        const { ctx } = entorno.exigir();
-        const r = await resumenGit(ctx);
+        const sesion = entorno.exigir();
+        const r = await resumenGit(sesion);
         const d = r.divergencia;
         return ok(
           [

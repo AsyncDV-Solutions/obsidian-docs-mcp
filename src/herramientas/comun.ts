@@ -4,9 +4,9 @@ import type { Preparado } from '../cambios.ts';
 import { aResultado, ErrorMcp, ok } from '../errores.ts';
 import type { Resultado } from '../errores.ts';
 import { LARGO_VERSION } from '../guardia.ts';
-import type { Guardia } from '../guardia.ts';
 import { PATRON_ID_RELEASE, patronId, TIPOS_NUMERADOS } from '../ids.ts';
 import { registrar } from '../log.ts';
+import type { Sesion } from '../sesion.ts';
 
 // Listas que salen de la configuración y que las herramientas ofrecen como opciones cerradas.
 export type Vocabulario = {
@@ -21,7 +21,7 @@ export type Vocabulario = {
 export type Entorno = {
   estado: EstadoArranque;
   vocabulario: Vocabulario;
-  exigir(): { ctx: Contexto; guardia: Guardia }; // lanza BLOQUEADO si el arranque falló
+  exigir(): Sesion; // lanza BLOQUEADO si el arranque falló
 };
 
 // Envuelve cada herramienta: convierte los errores en resultados y registra solo el código.
@@ -74,13 +74,12 @@ export const MOTIVO = z.string().max(500).regex(UNA_LINEA);
 
 // Texto común de toda vista previa: no se escribió nada y cómo se confirma.
 export function respuestaPreparada(p: Preparado): Resultado {
-  const minutos = Math.max(1, Math.round((p.expira.getTime() - Date.now()) / 60_000));
   return ok(
     [
       'VISTA PREVIA: todavía no se escribió nada.',
       p.vistaPrevia,
       '',
-      `Para aplicar: muéstrale esta vista previa a la persona y, solo si la aprueba, llama a cambio_aplicar con confirmacion="${p.confirmacion}". Vence en ${minutos} min y sirve una sola vez.`,
+      `Para aplicar: muéstrale esta vista previa a la persona y, solo si la aprueba, llama a cambio_aplicar con confirmacion="${p.confirmacion}". Vence en ${p.minutos} min y sirve una sola vez.`,
     ].join('\n'),
   );
 }

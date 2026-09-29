@@ -1,7 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { ok } from '../errores.ts';
 import { notasDesactualizadas } from '../mantenimiento.ts';
-import { indexar } from '../notas.ts';
 import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
@@ -15,8 +14,8 @@ export function registrarMantenimiento(server: McpServer, entorno: Entorno): voi
     },
     async () =>
       ejecutar('notas_desactualizadas', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const r = await notasDesactualizadas(ctx, await indexar(guardia, ctx.config));
+        const sesion = entorno.exigir();
+        const r = await notasDesactualizadas(sesion);
         const lineas = [`Fuentes revisadas: ${r.revisadas} · omitidas: ${r.omitidas} (por formato, exclusión, tope o SHA ausente en tu clon).`];
         if (r.desactualizadas.length === 0) {
           lineas.push('Ninguna nota quedó atrás.');

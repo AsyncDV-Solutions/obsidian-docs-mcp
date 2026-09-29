@@ -6,10 +6,10 @@ import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
 import type { Commit, ConsultasGit } from '../src/git.ts';
-import { crearGuardia } from '../src/guardia.ts';
-import { indexar } from '../src/notas.ts';
 import { clasificar, prepararBorradorRelease, proponer, siguienteVersion, ultimoTag } from '../src/release.ts';
 import type { DatosRelease } from '../src/release.ts';
+import { crearSesion } from '../src/sesion.ts';
+import type { Sesion } from '../src/sesion.ts';
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, notaContadores, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 import { consultasGitFalsas, falloDeGit } from './consultas-git-falsas.ts';
@@ -37,7 +37,7 @@ describe('clasificación y versiones', () => {
 
 describe('propuesta y borrador sobre un repo real', () => {
   let esc: Escenario;
-  let ctx: Contexto;
+  let sesion: Sesion;
 
   beforeEach(async () => {
     esc = await crearEscenario();
@@ -60,7 +60,7 @@ describe('propuesta y borrador sobre un repo real', () => {
     await mkdir(path.join(esc.proyecto, 'Releases'));
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok, 'el escenario debería arrancar');
-    ctx = estado.ctx;
+    sesion = crearSesion(estado.ctx);
   });
   afterEach(async () => {
     await esc.limpiar();
@@ -68,7 +68,7 @@ describe('propuesta y borrador sobre un repo real', () => {
 
   test('sin tags propone la línea base y no crea tags', async () => {
     const antes = gitDirecto(esc.repo, 'tag', '--list');
-    const p = await proponer(ctx, 'main');
+    const p = await proponer(sesion, 'main');
     assert.equal(p.bump, 'linea-base');
     assert.equal(p.version, '1.0.0');
     assert.equal(gitDirecto(esc.repo, 'tag', '--list'), antes);
@@ -78,7 +78,7 @@ describe('propuesta y borrador sobre un repo real', () => {
     gitDirecto(esc.repo, 'tag', 'v1.0.0');
     await escribirNota(esc.repo, 'db/migrations/20260201000000_drop.sql', '-- destructiva\ndrop table x;\n');
     commitear(esc.repo, 'feat(db): retira x');
-    const p = await proponer(ctx, 'main');
+    const p = await proponer(sesion, 'main');
     assert.equal(p.bump, 'major');
     assert.equal(p.version, '2.0.0');
     assert.ok(p.motivos.some((m) => m.includes('destructivas')));
@@ -88,14 +88,14 @@ describe('propuesta y borrador sobre un repo real', () => {
     gitDirecto(esc.repo, 'tag', 'v1.0.0');
     await escribirNota(esc.repo, 'docs/nota.sql', '-- destructiva\n');
     commitear(esc.repo, 'fix: nota');
-    assert.equal((await proponer(ctx, 'main')).bump, 'patch');
+    assert.equal((await proponer(sesion, 'main')).bump, 'patch');
   });
 
   test('las señales del proyecto se avisan', async () => {
     gitDirecto(esc.repo, 'tag', 'v1.0.0');
     await escribirNota(esc.repo, 'api/pedidos.ts', 'export {};\n');
     commitear(esc.repo, 'feat: pedidos');
-    const p = await proponer(ctx, 'main');
+    const p = await proponer(sesion, 'main');
     assert.equal(p.bump, 'minor');
     assert.ok(p.motivos.includes('Cambió la API pública: revisa los contratos.'));
     assert.deepEqual(p.divergencia?.principalNoEnDesarrollo, 1);
@@ -105,11 +105,10 @@ describe('propuesta y borrador sobre un repo real', () => {
     gitDirecto(esc.repo, 'tag', 'v1.0.0');
     await escribirNota(esc.repo, 'docs/b.md', 'b\n');
     commitear(esc.repo, 'fix: corrige b');
-    assert.equal((await proponer(ctx, 'main')).version, '1.0.1');
+    assert.equal((await proponer(sesion, 'main')).version, '1.0.1');
   });
 
   test('el borrador se crea con estado Borrador y «Publicada» exige el tag', async () => {
-    const g = crearGuardia(ctx.proyecto, ctx.config.limites);
     const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();
     const datos: DatosRelease = {
       version: '1.0.0',
@@ -123,21 +122,20 @@ describe('propuesta y borrador sobre un repo real', () => {
       release_status: 'Borrador',
       fuentes: [],
     };
-    const p = await prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), datos);
-    await aplicarCambio(ctx, g, p.confirmacion);
-    const texto = await readFile(path.join(ctx.proyecto, 'Releases', 'DEM-R-v1.0.0.md'), 'utf8');
+    const p = await prepararBorradorRelease(sesion, datos);
+    await aplicarCambio(sesion, p.confirmacion);
+    const texto = await readFile(path.join(sesion.proyecto, 'Releases', 'DEM-R-v1.0.0.md'), 'utf8');
     assert.match(texto, new RegExp(`- \\[ \\] El deploy de ${head} terminó en verde`));
     assert.match(texto, /- \[ \] Revisaste la divergencia entre main y develop/);
     assert.match(texto, new RegExp(`git tag -a v1\\.0\\.0 ${head} -m "Demo App v1\\.0\\.0"`));
-    const nota = (await indexar(g, ctx.config)).notas.find((n) => n.id === 'DEM-R-v1.0.0') ?? assert.fail('falta el release');
+    const nota = (await sesion.indice()).notas.find((n) => n.id === 'DEM-R-v1.0.0') ?? assert.fail('falta el release');
     assert.equal(nota.datos.release_status, 'Borrador');
     assert.equal(nota.datos.tag_verified, false);
     const publicada = { ...datos, release_status: 'Publicada' as const, version_esperada: nota.version };
-    assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), publicada)), 'TAG_NO_VERIFICADO');
+    assert.equal(await codigoDe(prepararBorradorRelease(sesion, publicada)), 'TAG_NO_VERIFICADO');
   });
 
   test('el texto libre del borrador se limpia al entrar: un marcador de bloque se rechaza y nombra el campo', async () => {
-    const g = crearGuardia(ctx.proyecto, ctx.config.limites);
     const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();
     const datos: DatosRelease = {
       version: '1.0.0',
@@ -151,14 +149,13 @@ describe('propuesta y borrador sobre un repo real', () => {
       release_status: 'Borrador',
       fuentes: [],
     };
-    await assert.rejects(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), datos), {
+    await assert.rejects(prepararBorradorRelease(sesion, datos), {
       codigo: 'CAMPO_INVALIDO',
       message: '«secciones.corregido[1]» no puede contener marcadores «%% asyncdv:».',
     });
   });
 
   test('actualizar el borrador cambia propiedades y bloque, conserva lo escrito fuera y exige la versión leída', async () => {
-    const g = crearGuardia(ctx.proyecto, ctx.config.limites);
     const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();
     const datos: DatosRelease = {
       version: '1.0.0',
@@ -172,12 +169,12 @@ describe('propuesta y borrador sobre un repo real', () => {
       release_status: 'Borrador',
       fuentes: [],
     };
-    await aplicarCambio(ctx, g, (await prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), datos)).confirmacion);
-    const ruta = path.join(ctx.proyecto, 'Releases', 'DEM-R-v1.0.0.md');
+    await aplicarCambio(sesion, (await prepararBorradorRelease(sesion, datos)).confirmacion);
+    const ruta = path.join(sesion.proyecto, 'Releases', 'DEM-R-v1.0.0.md');
     await writeFile(ruta, (await readFile(ruta, 'utf8')).replace('## Pasos manuales\n(complétalo tú)', '## Pasos manuales\nAvisar a soporte.'), 'utf8');
-    const nota = (await indexar(g, ctx.config)).notas.find((n) => n.id === 'DEM-R-v1.0.0') ?? assert.fail('falta el release');
-    assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), datos)), 'CONFLICTO', 'sin version_esperada no se actualiza');
-    const p = await prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), {
+    const nota = (await sesion.indice()).notas.find((n) => n.id === 'DEM-R-v1.0.0') ?? assert.fail('falta el release');
+    assert.equal(await codigoDe(prepararBorradorRelease(sesion, datos)), 'CONFLICTO', 'sin version_esperada no se actualiza');
+    const p = await prepararBorradorRelease(sesion, {
       ...datos,
       titulo: 'Demo App v1.0.0 — lista',
       resumen: 'Revisada.',
@@ -186,14 +183,14 @@ describe('propuesta y borrador sobre un repo real', () => {
       version_esperada: nota.version,
     });
     assert.match(p.vistaPrevia, /^Cambios en Releases\/DEM-R-v1\.0\.0\.md:\n/);
-    await aplicarCambio(ctx, g, p.confirmacion);
+    await aplicarCambio(sesion, p.confirmacion);
     const texto = await readFile(ruta, 'utf8');
     assert.match(texto, /^title: Demo App v1\.0\.0 — lista$/m);
     assert.match(texto, /^release_status: Lista$/m);
     assert.match(texto, /## Corregido\n- Un bug\n/);
     assert.match(texto, /## Pasos manuales\nAvisar a soporte\./);
     assert.doesNotMatch(texto, /Primera versión\./);
-    assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), { ...datos, version_esperada: nota.version })), 'CONFLICTO', 'la versión leída antes de aplicar ya no vale');
+    assert.equal(await codigoDe(prepararBorradorRelease(sesion, { ...datos, version_esperada: nota.version })), 'CONFLICTO', 'la versión leída antes de aplicar ya no vale');
   });
 });
 

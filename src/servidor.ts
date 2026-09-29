@@ -2,7 +2,6 @@ import { McpServer } from '@modelcontextprotocol/server';
 import type { EstadoArranque } from './arranque.ts';
 import { AMBIENTES_POR_DEFECTO, AREAS_POR_DEFECTO, CATEGORIAS_POR_DEFECTO, nombreProyecto } from './config.ts';
 import { ErrorMcp } from './errores.ts';
-import { crearGuardia } from './guardia.ts';
 import type { Entorno, Vocabulario } from './herramientas/comun.ts';
 import { registrarConsulta } from './herramientas/consulta.ts';
 import { registrarDocumentos } from './herramientas/documentos.ts';
@@ -10,6 +9,7 @@ import { registrarMantenimiento } from './herramientas/mantenimiento.ts';
 import { registrarRelease } from './herramientas/release.ts';
 import { registrarRepo } from './herramientas/repo.ts';
 import { registrarTareas } from './herramientas/tareas.ts';
+import { crearSesion } from './sesion.ts';
 import { NOMBRE, VERSION } from './version.ts';
 
 // z.enum exige al menos una opción: la configuración ya lo garantiza; el respaldo cubre un arranque fallido.
@@ -33,15 +33,15 @@ function vocabularioDe(estado: EstadoArranque): Vocabulario {
 }
 
 export function crearServidor(estado: EstadoArranque): McpServer {
-  const guardia = estado.ok ? crearGuardia(estado.ctx.proyecto, estado.ctx.config.limites) : null;
+  const sesion = estado.ok ? crearSesion(estado.ctx) : null;
   const entorno: Entorno = {
     estado,
     vocabulario: vocabularioDe(estado),
     exigir() {
-      if (!estado.ok || guardia === null) {
+      if (sesion === null) {
         throw new ErrorMcp('BLOQUEADO', 'La configuración tiene problemas: usa proyecto_estado para ver cuáles.');
       }
-      return { ctx: estado.ctx, guardia };
+      return sesion;
     },
   };
 

@@ -4,7 +4,7 @@ import { aplicarCambio } from '../aplicar.ts';
 import { ESTADOS, PRIORIDADES, RESOLUCIONES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { fuenteRepo } from '../fuentes.ts';
-import { estadoDe, indexar } from '../notas.ts';
+import { estadoDe } from '../notas.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../tareas.ts';
 import { conPedidoPor, ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
@@ -36,8 +36,8 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('tarea_crear', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const preparado = await prepararTareaNueva(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args));
+        const sesion = entorno.exigir();
+        const preparado = await prepararTareaNueva(sesion, conPedidoPor(sesion, args));
         if ('repetida' in preparado) {
           const { id, ruta } = preparado.repetida;
           return ok(`Ya existe ${id} (${estadoDe(preparado.repetida)}) con ese título: ${ruta}. No se preparó nada.`);
@@ -65,8 +65,8 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('tarea_cambiar_estado', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const preparado = await prepararCambioEstado(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args));
+        const sesion = entorno.exigir();
+        const preparado = await prepararCambioEstado(sesion, conPedidoPor(sesion, args));
         if (preparado === null) return ok(`${args.id} ya está en «${args.estado}»: no hay nada que cambiar.`);
         return respuestaPreparada(preparado);
       }),
@@ -95,8 +95,8 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('tarea_actualizar', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararActualizacion(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args)));
+        const sesion = entorno.exigir();
+        return respuestaPreparada(await prepararActualizacion(sesion, conPedidoPor(sesion, args)));
       }),
   );
 
@@ -110,8 +110,8 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     },
     async ({ confirmacion }) =>
       ejecutar('cambio_aplicar', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const hechas = await aplicarCambio(ctx, guardia, confirmacion);
+        const sesion = entorno.exigir();
+        const hechas = await aplicarCambio(sesion, confirmacion);
         return ok(['Aplicado:', ...hechas.map((h) => `- ${h}`)].join('\n'));
       }),
   );

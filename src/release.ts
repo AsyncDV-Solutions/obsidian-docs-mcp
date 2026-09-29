@@ -1,13 +1,12 @@
 import type { Contexto } from './arranque.ts';
+import type { Sesion } from './sesion.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
 import { nombreProyecto } from './config.ts';
 import { ahora, limpiarTextoLibre } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Commit } from './git.ts';
-import type { Guardia } from './guardia.ts';
 import { idDeRelease } from './ids.ts';
-import type { Indice } from './notas.ts';
 import { divergencia as calcularDivergencia } from './repo.ts';
 import type { Divergencia } from './repo.ts';
 
@@ -157,45 +156,46 @@ export function contenidoRelease(ctx: Contexto, d: DatosRelease): string {
 }
 
 // Crea o actualiza <carpetas.releases>/<prefijo>-R-v<versión>.md. Al actualizar, solo cambian las propiedades y el bloque.
-export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosRelease): Promise<Preparado> {
-  const cfg = ctx.config;
-  const d = limpiarTextoLibre(entrada, cfg.limites.campo_max_kb);
-  const id = idDeRelease(cfg.id_prefix, d.version);
-  const tagExiste = await ctx.consultasGit.existeTag(`v${d.version}`);
-  if (d.release_status === 'Publicada' && !tagExiste) {
-    throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${d.version} en tu repo local: «Publicada» exige que exista.`);
+export async function prepararBorradorRelease(sesion: Sesion, sinLimpiar: DatosRelease): Promise<Preparado> {
+  const cfg = sesion.config;
+  const datos = limpiarTextoLibre(sinLimpiar, cfg.limites.campo_max_kb);
+  const indice = await sesion.indice();
+  const id = idDeRelease(cfg.id_prefix, datos.version);
+  const tagExiste = await sesion.consultasGit.existeTag(`v${datos.version}`);
+  if (datos.release_status === 'Publicada' && !tagExiste) {
+    throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${datos.version} en tu repo local: «Publicada» exige que exista.`);
   }
-  const bloque = contenidoRelease(ctx, d);
+  const bloque = contenidoRelease(sesion, datos);
   const propiedades: Record<string, unknown> = {
-    version: d.version,
-    proposed_tag: `v${d.version}`,
-    release_status: d.release_status,
-    bump: d.bump,
-    base_ref: d.base_ref,
-    head_ref: d.head_ref,
+    version: datos.version,
+    proposed_tag: `v${datos.version}`,
+    release_status: datos.release_status,
+    bump: datos.bump,
+    base_ref: datos.base_ref,
+    head_ref: datos.head_ref,
     analyzed_on: ahora(cfg.zona_horaria).fecha,
     tag_verified: tagExiste,
-    promotion_run: d.promotion_run,
-    source: d.fuentes,
+    promotion_run: datos.promotion_run,
+    source: datos.fuentes,
   };
 
   const existente = indice.notas.find((n) => n.id === id);
   if (existente === undefined) {
-    return crear(ctx, guardia, indice, {
+    return crear(sesion, indice, {
       tipo: 'release',
       id, // los releases no se numeran: el id lleva la versión
       carpeta: cfg.carpetas.releases,
-      titulo: d.titulo,
+      titulo: datos.titulo,
       propiedades,
       valores: {},
       bloques: { release: bloque },
       herramienta: 'release_borrador_guardar',
     });
   }
-  if (d.version_esperada !== existente.version) {
+  if (datos.version_esperada !== existente.version) {
     throw new ErrorMcp('CONFLICTO', `${id} ya existe: léelo con nota_leer y pasa su versión en version_esperada.`);
   }
   // Sin historial: la plantilla de release no lo tiene. Una propiedad sin valor (promotion_run) se quita.
-  const cambios: [string, unknown][] = [['title', d.titulo], ...Object.entries(propiedades).map(([clave, valor]): [string, unknown] => [clave, valor ?? null])];
-  return editar(ctx, guardia, existente, { herramienta: 'release_borrador_guardar', propiedades: cambios, bloques: { release: bloque } });
+  const cambios: [string, unknown][] = [['title', datos.titulo], ...Object.entries(propiedades).map(([clave, valor]): [string, unknown] => [clave, valor ?? null])];
+  return editar(sesion, existente, { herramienta: 'release_borrador_guardar', propiedades: cambios, bloques: { release: bloque } });
 }

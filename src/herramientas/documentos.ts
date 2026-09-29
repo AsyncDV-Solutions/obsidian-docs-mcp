@@ -1,6 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
-import type { Contexto } from '../arranque.ts';
 import {
   prepararActualizacionFuncionalidad,
   prepararActualizacionGuia,
@@ -13,7 +12,6 @@ import { EVIDENCIAS, PRIORIDADES, SEVERIDADES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { fuenteRepo, PATRON_SHA } from '../fuentes.ts';
 import { patronId } from '../ids.ts';
-import { indexar } from '../notas.ts';
 import { prepararTablero } from '../tablero.ts';
 import { conPedidoPor, ejecutar, FECHA, ID, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno, Vocabulario } from './comun.ts';
@@ -71,8 +69,8 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('funcionalidad_crear', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararFuncionalidad(ctx, guardia, await indexar(guardia, ctx.config), args));
+        const sesion = entorno.exigir();
+        return respuestaPreparada(await prepararFuncionalidad(sesion, args));
       }),
   );
 
@@ -90,8 +88,8 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('funcionalidad_actualizar', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararActualizacionFuncionalidad(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args)));
+        const sesion = entorno.exigir();
+        return respuestaPreparada(await prepararActualizacionFuncionalidad(sesion, conPedidoPor(sesion, args)));
       }),
   );
 
@@ -118,8 +116,8 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('guia_crear', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararGuia(ctx, guardia, await indexar(guardia, ctx.config), args));
+        const sesion = entorno.exigir();
+        return respuestaPreparada(await prepararGuia(sesion, args));
       }),
   );
 
@@ -139,8 +137,8 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('guia_actualizar', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararActualizacionGuia(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args)));
+        const sesion = entorno.exigir();
+        return respuestaPreparada(await prepararActualizacionGuia(sesion, conPedidoPor(sesion, args)));
       }),
   );
 
@@ -165,8 +163,8 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('adr_crear', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararAdr(ctx, guardia, await indexar(guardia, ctx.config), args));
+        const sesion = entorno.exigir();
+        return respuestaPreparada(await prepararAdr(sesion, args));
       }),
   );
 
@@ -193,8 +191,8 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('incidencia_crear', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        return respuestaPreparada(await prepararIncidencia(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args)));
+        const sesion = entorno.exigir();
+        return respuestaPreparada(await prepararIncidencia(sesion, conPedidoPor(sesion, args)));
       }),
   );
 
@@ -206,8 +204,8 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     },
     async () =>
       ejecutar('tablero_regenerar', async () => {
-        const { ctx, guardia } = entorno.exigir();
-        const preparado = await prepararTablero(ctx, guardia, await indexar(guardia, ctx.config));
+        const sesion = entorno.exigir();
+        const preparado = await prepararTablero(sesion);
         return preparado === null ? ok('El tablero ya está al día: no hay nada que cambiar.') : respuestaPreparada(preparado);
       }),
   );

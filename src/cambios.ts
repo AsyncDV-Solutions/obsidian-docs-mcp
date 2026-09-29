@@ -8,20 +8,19 @@
 //   - BOM y saltos de línea de la nota se conservan; «updated» se renueva en cada edición.
 //   - Crear una nota numerada reemplaza _contadores.md atado a su versión: aplicar una creación
 //     invalida las otras vistas previas de creación (nunca se reparte un número dos veces).
-//   - El código vence, sirve una sola vez y el tope de escrituras por minuto se comprueba antes de consumirlo.
-import { randomBytes } from 'node:crypto';
+//   - El código lo guarda el almacén de la sesión (almacen.ts): vence y sirve una sola vez.
 import { Document } from 'yaml';
-import type { Contexto } from './arranque.ts';
 import { escribirBloque, leerBloque } from './bloques.ts';
 import { ahora, slug } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import { separarNota, unirNota } from './frontmatter.ts';
-import type { Guardia, Leida } from './guardia.ts';
+import type { Leida } from './guardia.ts';
 import { claveContador, formatearId, RUTA_CONTADORES, siguienteNumero } from './ids.ts';
 import type { TipoNumerado } from './ids.ts';
 import type { Indice, Nota } from './notas.ts';
 import { cargarPlantilla, rellenar } from './plantillas.ts';
 import type { TipoPlantilla } from './plantillas.ts';
+import type { Sesion } from './sesion.ts';
 
 export type Operacion =
   | { tipo: 'crear'; ruta: string; contenido: string }
@@ -29,53 +28,7 @@ export type Operacion =
 
 export type Cambio = { descripcion: string; operaciones: Operacion[] };
 
-export type Preparado = { confirmacion: string; expira: Date; vistaPrevia: string };
-
-// ——— Códigos de confirmación y tope de escrituras ———
-
-// Cambios preparados y todavía no aplicados. Viven en la memoria del proceso: si el servidor
-// se reinicia, se pierden y hay que volver a prepararlos (falla cerrado, nunca abierto).
-const preparados = new Map<string, { cambio: Cambio; expira: number }>();
-
-function limpiarVencidos(instante: number): void {
-  for (const [codigo, p] of preparados) if (p.expira <= instante) preparados.delete(codigo);
-}
-
-function registrarCambio(cambio: Cambio, minutos: number): { confirmacion: string; expira: Date } {
-  const instante = Date.now();
-  limpiarVencidos(instante);
-  const confirmacion = randomBytes(16).toString('base64url'); // 128 bits aleatorios: no se puede adivinar
-  const expira = instante + minutos * 60_000;
-  preparados.set(confirmacion, { cambio, expira });
-  return { confirmacion, expira: new Date(expira) };
-}
-
-// Tope de escrituras por minuto (ventana deslizante): la especificación MCP exige limitar la tasa.
-const escrituras: number[] = [];
-
-function exigirCupo(maxPorMinuto: number, instante: number): void {
-  while (escrituras.length > 0 && (escrituras[0] ?? 0) <= instante - 60_000) escrituras.shift();
-  if (escrituras.length >= maxPorMinuto) {
-    throw new ErrorMcp('LIMITE', `Se alcanzó el tope de ${maxPorMinuto} escrituras por minuto. Espera un momento.`);
-  }
-}
-
-// Entrega el cambio a aplicar.ts una sola vez. El tope de escrituras por minuto se comprueba ANTES de
-// consumir el código: alcanzar el tope es una pausa, no una invalidación. Y solo cuenta como escritura
-// un código válido: uno inexistente o vencido no gasta cupo. Todo lo que falle después de tomarlo sí
-// lo consume: aunque aplicar falle a medias, el código ya no sirve.
-export function tomar(confirmacion: string, maxPorMinuto: number): Cambio {
-  const instante = Date.now();
-  exigirCupo(maxPorMinuto, instante);
-  limpiarVencidos(instante);
-  const preparado = preparados.get(confirmacion);
-  preparados.delete(confirmacion);
-  if (preparado === undefined) {
-    throw new ErrorMcp('CONFIRMACION_INVALIDA', 'El código no existe, ya se usó o venció. Vuelve a preparar el cambio.');
-  }
-  escrituras.push(instante);
-  return preparado.cambio;
-}
+export type Preparado = { confirmacion: string; expira: Date; minutos: number; vistaPrevia: string };
 
 // ——— Vista previa ———
 
@@ -127,7 +80,7 @@ type Op = { tipo: 'crear'; ruta: string; contenido: string } | { tipo: 'reemplaz
 
 // Registra el cambio y arma la vista previa: avisos primero, después las notas nuevas completas y al
 // final los diffs de las reemplazadas. Las operaciones se aplican en el orden recibido, no en este.
-function preparar(ctx: Contexto, descripcion: string, ops: Op[], avisos: string[] = []): Preparado {
+function preparar(sesion: Sesion, descripcion: string, ops: Op[], avisos: string[] = []): Preparado {
   const cambio: Cambio = {
     descripcion,
     operaciones: ops.map((op) =>
@@ -136,8 +89,9 @@ function preparar(ctx: Contexto, descripcion: string, ops: Op[], avisos: string[
   };
   const paraLeer = [...ops.filter((op) => op.tipo === 'crear'), ...ops.filter((op) => op.tipo === 'reemplazar')];
   const cuerpo = paraLeer.map((op) => (op.tipo === 'crear' ? `Crear ${op.ruta}:\n———\n${op.contenido}\n———` : `Cambios en ${op.ruta}:\n${diffLineas(op.antes, op.contenido)}`));
-  const { confirmacion, expira } = registrarCambio(cambio, ctx.config.limites.confirmacion_minutos);
-  return { confirmacion, expira, vistaPrevia: [...avisos, ...cuerpo].join('\n') };
+  const minutos = sesion.config.limites.confirmacion_minutos;
+  const { confirmacion, expira } = sesion.almacen.guardar(cambio, minutos);
+  return { confirmacion, expira, minutos, vistaPrevia: [...avisos, ...cuerpo].join('\n') };
 }
 
 function avisoEditadoAMano(nombre: string): string {
@@ -166,11 +120,11 @@ export type PedidoCrear = {
 };
 
 // El contador: leer, validar, calcular el siguiente número y preparar su reemplazo.
-async function numerar(ctx: Contexto, guardia: Guardia, indice: Indice, tipo: TipoNumerado): Promise<{ id: string; op: Op }> {
-  const cfg = ctx.config;
+async function numerar(sesion: Sesion, indice: Indice, tipo: TipoNumerado): Promise<{ id: string; op: Op }> {
+  const cfg = sesion.config;
   let contadores: Leida;
   try {
-    contadores = await guardia.leer(RUTA_CONTADORES);
+    contadores = await sesion.guardia.leer(RUTA_CONTADORES);
   } catch (error) {
     if (error instanceof ErrorMcp && error.codigo === 'NOTA_NO_EXISTE') {
       throw new ErrorMcp('CONTADORES_FALTA', `Falta ${RUTA_CONTADORES} en la carpeta del proyecto: créalo con «pnpm run iniciar».`);
@@ -189,18 +143,18 @@ async function numerar(ctx: Contexto, guardia: Guardia, indice: Indice, tipo: Ti
 
 // Prepara una nota nueva: propiedades armadas por código + cuerpo de la plantilla con sus bloques.
 // Que el archivo destino ya exista lo detecta aplicar (YA_EXISTE): acá solo se valida la carpeta.
-export async function crear(ctx: Contexto, guardia: Guardia, indice: Indice, p: PedidoCrear): Promise<Preparado> {
-  const cfg = ctx.config;
+export async function crear(sesion: Sesion, indice: Indice, p: PedidoCrear): Promise<Preparado> {
+  const cfg = sesion.config;
   const momento = ahora(cfg.zona_horaria);
   const ops: Op[] = [];
   let id: string;
   if (typeof p.id === 'string') {
     id = p.id;
   } else {
-    ({ id, op: ops[0] } = await numerar(ctx, guardia, indice, p.id.numerar));
+    ({ id, op: ops[0] } = await numerar(sesion, indice, p.id.numerar));
   }
   const ruta = typeof p.id === 'string' ? `${p.carpeta}/${id}.md` : `${p.carpeta}/${id}-${slug(p.titulo)}.md`;
-  await guardia.rutaParaEscribir(ruta); // valida la carpeta ya, para avisar antes de confirmar
+  await sesion.guardia.rutaParaEscribir(ruta); // valida la carpeta ya, para avisar antes de confirmar
 
   const doc = new Document({
     id,
@@ -212,7 +166,7 @@ export async function crear(ctx: Contexto, guardia: Guardia, indice: Indice, p: 
     created: momento.fecha,
     updated: momento.fechaHora,
   });
-  let cuerpo = rellenar(await cargarPlantilla(p.tipo, ctx.plantillas), p.valores, '\n');
+  let cuerpo = rellenar(await cargarPlantilla(p.tipo, sesion.plantillas), p.valores, '\n');
   // cargarPlantilla ya garantizó los bloques del formato vigente: solo falta alguno en un formato anterior.
   for (const [nombre, contenido] of Object.entries(p.bloques ?? {})) {
     if (leerBloque(cuerpo, nombre) !== null) cuerpo = escribirBloque(cuerpo, nombre, contenido, '\n');
@@ -221,7 +175,7 @@ export async function crear(ctx: Contexto, guardia: Guardia, indice: Indice, p: 
     cuerpo = escribirBloque(cuerpo, 'historial', lineaHistorial(momento, p.historial, p.herramienta), '\n');
   }
   ops.push({ tipo: 'crear', ruta, contenido: unirNota({ bom: false, eol: '\n', doc, cuerpo }) });
-  return preparar(ctx, `crear ${id}`, ops);
+  return preparar(sesion, `crear ${id}`, ops);
 }
 
 // ——— Editar ———
@@ -237,10 +191,10 @@ export type Edicion = {
 // Prepara el reemplazo de una nota existente. Relee la nota: si ya no está en la versión del índice,
 // no prepara nada. Solo cambia propiedades, bloques gestionados, «updated», el cuerpo que pida el
 // llamador y el historial, en ese orden; todo lo demás queda igual, byte a byte.
-export async function editar(ctx: Contexto, guardia: Guardia, nota: Nota, e: Edicion): Promise<Preparado> {
-  const cfg = ctx.config;
+export async function editar(sesion: Sesion, nota: Nota, e: Edicion): Promise<Preparado> {
+  const cfg = sesion.config;
   const nombre = nota.id || nota.ruta;
-  const leida = await guardia.leer(nota.ruta);
+  const leida = await sesion.guardia.leer(nota.ruta);
   if (leida.version !== nota.version) throw new ErrorMcp('CONFLICTO', `${nombre} cambió desde que la leíste: vuelve a leerla y a preparar el cambio.`);
   const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
   const momento = ahora(cfg.zona_horaria);
@@ -272,16 +226,16 @@ export async function editar(ctx: Contexto, guardia: Guardia, nota: Nota, e: Edi
     if (historial.editadoAMano) avisos.push('Aviso: el historial fue editado a mano; se agrega la línea igual y se renueva su huella.');
   }
   const contenido = unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo });
-  return preparar(ctx, `editar ${nombre}`, [{ tipo: 'reemplazar', ruta: nota.ruta, contenido, versionEsperada: leida.version, antes: leida.texto }], avisos);
+  return preparar(sesion, `editar ${nombre}`, [{ tipo: 'reemplazar', ruta: nota.ruta, contenido, versionEsperada: leida.version, antes: leida.texto }], avisos);
 }
 
 // ——— Regenerar un bloque ———
 
 // Reemplaza un bloque gestionado de una nota cualquiera del proyecto (p. ej. el tablero).
 // Devuelve null si el bloque ya tiene ese contenido y nadie lo editó a mano: regenerar no cambia nada.
-export async function regenerarBloque(ctx: Contexto, guardia: Guardia, ruta: string, nombre: string, texto: string): Promise<Preparado | null> {
-  const cfg = ctx.config;
-  const leida = await guardia.leer(ruta);
+export async function regenerarBloque(sesion: Sesion, ruta: string, nombre: string, texto: string): Promise<Preparado | null> {
+  const cfg = sesion.config;
+  const leida = await sesion.guardia.leer(ruta);
   const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
   if (sep.datos.project_id !== cfg.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${ruta} no pertenece a este proyecto.`);
   const bloque = leerBloque(sep.cuerpo, nombre);
@@ -293,5 +247,5 @@ export async function regenerarBloque(ctx: Contexto, guardia: Guardia, ruta: str
   const cuerpo = escribirBloque(sep.cuerpo, nombre, texto, sep.eol);
   const contenido = unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo });
   const avisos = bloque.editadoAMano ? [avisoEditadoAMano(nombre)] : [];
-  return preparar(ctx, `regenerar ${nombre} de ${ruta}`, [{ tipo: 'reemplazar', ruta, contenido, versionEsperada: leida.version, antes: leida.texto }], avisos);
+  return preparar(sesion, `regenerar ${nombre} de ${ruta}`, [{ tipo: 'reemplazar', ruta, contenido, versionEsperada: leida.version, antes: leida.texto }], avisos);
 }

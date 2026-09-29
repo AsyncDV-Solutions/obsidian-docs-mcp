@@ -1,10 +1,8 @@
 import { access } from 'node:fs/promises';
-import type { Contexto } from './arranque.ts';
-import { tomar } from './cambios.ts';
 import { ErrorMcp } from './errores.ts';
-import { conBloqueo, crearExclusivo, reemplazarAtomico } from './escritura.ts';
-import type { Guardia } from './guardia.ts';
+import { conBloqueo } from './escritura.ts';
 import { registrar } from './log.ts';
+import type { Sesion } from './sesion.ts';
 
 async function existe(ruta: string): Promise<boolean> {
   try {
@@ -16,15 +14,19 @@ async function existe(ruta: string): Promise<boolean> {
 }
 
 // El ÚNICO camino que escribe en el vault.
-export async function aplicarCambio(ctx: Contexto, guardia: Guardia, confirmacion: string): Promise<string[]> {
-  const cambio = tomar(confirmacion, ctx.config.limites.escrituras_por_minuto); // cupo primero; el código sirve una sola vez
-  return conBloqueo(ctx.dirEstado, async () => {
+export async function aplicarCambio(sesion: Sesion, confirmacion: string): Promise<string[]> {
+  // Alcanzar el tope es una pausa, no una invalidación: se comprueba ANTES de consumir el código. Solo un código
+  // válido gasta cupo, y todo lo que falle después de retirarlo también lo consume: el código sirve una sola vez.
+  sesion.tope.exigir();
+  const cambio = sesion.almacen.retirar(confirmacion);
+  sesion.tope.contar();
+  return conBloqueo(sesion.dirEstado, async () => {
     // 1. Verificar TODO antes de escribir nada.
     const destinos: string[] = [];
     for (const op of cambio.operaciones) {
-      const absoluta = await guardia.rutaParaEscribir(op.ruta);
+      const absoluta = await sesion.guardia.rutaParaEscribir(op.ruta);
       if (op.tipo === 'reemplazar') {
-        if ((await guardia.leer(op.ruta)).version !== op.versionEsperada) {
+        if ((await sesion.guardia.leer(op.ruta)).version !== op.versionEsperada) {
           throw new ErrorMcp('CONFLICTO', `${op.ruta} cambió desde la vista previa. No se escribió nada: vuelve a preparar el cambio.`);
         }
       } else if (await existe(absoluta)) {
@@ -37,8 +39,8 @@ export async function aplicarCambio(ctx: Contexto, guardia: Guardia, confirmacio
     for (const [i, op] of cambio.operaciones.entries()) {
       const absoluta = destinos[i] ?? '';
       try {
-        if (op.tipo === 'crear') await crearExclusivo(absoluta, op.contenido);
-        else await reemplazarAtomico(absoluta, op.contenido, op.versionEsperada);
+        if (op.tipo === 'crear') await sesion.escritor.crearExclusivo(absoluta, op.contenido);
+        else await sesion.escritor.reemplazarAtomico(absoluta, op.contenido, op.versionEsperada);
       } catch (error) {
         if (hechas.length === 0) throw error;
         const detalle = error instanceof ErrorMcp ? error.message : 'error de escritura';

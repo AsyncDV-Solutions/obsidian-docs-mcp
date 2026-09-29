@@ -2,7 +2,6 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
 import { PATRON_SHA } from '../fuentes.ts';
-import { indexar } from '../notas.ts';
 import { comandosTag, listaVerificacion, prepararBorradorRelease, proponer } from '../release.ts';
 import { ejecutar, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
@@ -20,9 +19,9 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('release_proponer', async () => {
-        const { ctx } = entorno.exigir();
-        const head = args.head ?? ctx.config.release.rama_principal;
-        const p = await proponer(ctx, head);
+        const sesion = entorno.exigir();
+        const head = args.head ?? sesion.config.release.rama_principal;
+        const p = await proponer(sesion, head);
         const corto = p.head.slice(0, 7);
         const c = p.clasificacion;
         const d = p.divergencia;
@@ -39,9 +38,9 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
             'Señales para revisar:',
             ...(p.motivos.length === 0 ? ['- (ninguna)'] : p.motivos.map((m) => `- ${m}`)),
             'Lista de verificación antes del tag:',
-            ...listaVerificacion(ctx, corto),
+            ...listaVerificacion(sesion, corto),
             'Comandos (los ejecutas tú, después de verificar):',
-            ...comandosTag(ctx, p.version, corto),
+            ...comandosTag(sesion, p.version, corto),
           ]
             .filter((l) => l !== '')
             .join('\n'),
@@ -77,13 +76,13 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
     },
     async (args) =>
       ejecutar('release_borrador_guardar', async () => {
-        const { ctx, guardia } = entorno.exigir();
+        const sesion = entorno.exigir();
         const datos = {
           ...args,
           secciones: { anadido: args.anadido, cambiado: args.cambiado, obsoleto: args.obsoleto, eliminado: args.eliminado, corregido: args.corregido, seguridad: args.seguridad },
           migraciones: args.migraciones ?? [],
         };
-        return respuestaPreparada(await prepararBorradorRelease(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararBorradorRelease(sesion, datos));
       }),
   );
 }
