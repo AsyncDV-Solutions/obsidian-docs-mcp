@@ -1,7 +1,7 @@
 import type { Contexto } from './arranque.ts';
 import type { Sesion } from './sesion.ts';
 import { crear, editar } from './cambios.ts';
-import type { Preparado } from './cambios.ts';
+import type { Preparado, Propiedades } from './cambios.ts';
 import { nombreProyecto } from './config.ts';
 import { ahora, limpiarTextoLibre } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
@@ -196,6 +196,6 @@ export async function prepararBorradorRelease(sesion: Sesion, sinLimpiar: DatosR
     throw new ErrorMcp('CONFLICTO', `${id} ya existe: léelo con nota_leer y pasa su versión en version_esperada.`);
   }
   // Sin historial: la plantilla de release no lo tiene. Una propiedad sin valor (promotion_run) se quita.
-  const cambios: [string, unknown][] = [['title', datos.titulo], ...Object.entries(propiedades).map(([clave, valor]): [string, unknown] => [clave, valor ?? null])];
+  const cambios: Propiedades = { title: datos.titulo, ...Object.fromEntries(Object.entries(propiedades).map(([clave, valor]) => [clave, valor ?? null])) };
   return editar(sesion, existente, { herramienta: 'release_borrador_guardar', propiedades: cambios, bloques: { release: bloque } });
 }

@@ -1,7 +1,7 @@
 import type { Contexto } from './arranque.ts';
 import type { Sesion } from './sesion.ts';
-import { crear, editar } from './cambios.ts';
-import type { Preparado } from './cambios.ts';
+import { clavesConValor, crear, editar } from './cambios.ts';
+import type { Preparado, Propiedades } from './cambios.ts';
 import { ahora, limpiarTextoLibre, quienPide } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import { enlacesA, notaVigente } from './notas.ts';
@@ -141,22 +141,22 @@ async function prepararActualizacionConEvidencia(
     throw new ErrorMcp('FALTA_COMMIT', 'Cambiar afirmaciones, fuentes o evidence exige reviewed_commit: el SHA contra el que revisaste.');
   }
 
-  const propiedades: [string, unknown][] = [];
-  if (datos.titulo !== undefined) propiedades.push(['title', datos.titulo]); // el nombre del archivo no cambia
-  if (datos.area !== undefined) propiedades.push(['area', datos.area]);
-  if (datos.evidence !== undefined) propiedades.push(['evidence', datos.evidence]);
-  if (datos.reviewed_commit !== undefined) {
-    propiedades.push(['reviewed_commit', datos.reviewed_commit], ['reviewed_on', ahora(sesion.config.zona_horaria).fecha]);
-  }
-  if (datos.fuentes !== undefined) propiedades.push(['source', datos.fuentes]);
-  if (datos.relacionadas !== undefined) propiedades.push(['related', enlacesA(sesion.config.project_dir, indice, datos.relacionadas)]);
+  const propiedades: Propiedades = {
+    title: datos.titulo, // el nombre del archivo no cambia
+    area: datos.area,
+    evidence: datos.evidence,
+    reviewed_commit: datos.reviewed_commit,
+    reviewed_on: datos.reviewed_commit === undefined ? undefined : ahora(sesion.config.zona_horaria).fecha,
+    source: datos.fuentes,
+    related: datos.relacionadas === undefined ? undefined : enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
+  };
 
   const bloques: Record<string, string> = {};
   for (const [nombre, texto] of textos) if (texto !== undefined) bloques[nombre] = envolver(texto);
   if (datos.afirmaciones !== undefined) bloques.afirmaciones = envolver(tablaAfirmaciones(datos.afirmaciones));
   if (datos.pendientes !== undefined) bloques.pendientes = envolver(listaPendientes(sesion, indice, datos.pendientes));
 
-  const nombres = [...propiedades.map(([clave]) => clave), ...Object.keys(bloques)];
+  const nombres = [...clavesConValor(propiedades), ...Object.keys(bloques)];
   if (nombres.length === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
   const detalles = [`pidió: ${pedidoPor}`, datos.motivo ? `motivo: ${datos.motivo}` : ''].filter((x) => x !== '').join(' · ');
   return editar(sesion, nota, { herramienta: t.herramienta, historial: `actualizada: ${nombres.join(', ')} · ${detalles}`, propiedades, bloques });

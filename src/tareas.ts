@@ -1,6 +1,6 @@
 import type { Sesion } from './sesion.ts';
-import { crear, editar } from './cambios.ts';
-import type { Preparado } from './cambios.ts';
+import { clavesConValor, crear, editar } from './cambios.ts';
+import type { Preparado, Propiedades } from './cambios.ts';
 import { agregarCriterio, criteriosPendientes, limpiarTextoLibre, normalizar, problemasDeTransicion, quienPide } from './dominio.ts';
 import type { Estado, Resolucion } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
@@ -101,12 +101,13 @@ export async function prepararCambioEstado(sesion: Sesion, sinLimpiar: DatosCamb
     .filter((x) => x !== '')
     .join(' · ');
 
-  const propiedades: [string, unknown][] = [['status', datos.estado]];
-  if (datos.estado === 'Bloqueado') {
-    if (bloqueadaPor.length > 0) propiedades.push(['blocked_by', bloqueadaPor]);
-    if (datos.blocked_reason) propiedades.push(['blocked_reason', datos.blocked_reason]);
-  }
-  propiedades.push(['resolution', datos.estado === 'Completado' ? datos.resolution : null]); // reabrir quita la resolución anterior
+  const bloqueado = datos.estado === 'Bloqueado';
+  const propiedades: Propiedades = {
+    status: datos.estado,
+    blocked_by: bloqueado && bloqueadaPor.length > 0 ? bloqueadaPor : undefined,
+    blocked_reason: bloqueado && datos.blocked_reason ? datos.blocked_reason : undefined,
+    resolution: datos.estado === 'Completado' ? datos.resolution : null, // reabrir quita la resolución anterior
+  };
   return editar(sesion, nota, { herramienta: 'tarea_cambiar_estado', historial: `${origen} → ${datos.estado} · ${detalles}`, propiedades });
 }
 
@@ -131,18 +132,20 @@ export async function prepararActualizacion(sesion: Sesion, sinLimpiar: DatosAct
   const indice = await sesion.indice();
   const nota = tareaVigente(indice, datos.id, datos.version_esperada);
   // Lista cerrada: cada campo del pedido se traduce a una propiedad de la nota (null la quita).
-  const propiedades: [string, unknown][] = [];
-  if (datos.prioridad !== undefined) propiedades.push(['priority', datos.prioridad]);
-  if (datos.responsable !== undefined) propiedades.push(['assignee', datos.responsable]);
-  if (datos.due !== undefined) propiedades.push(['due', datos.due]);
-  if (datos.release !== undefined) propiedades.push(['release', datos.release === null ? null : enlacesA(sesion.config.project_dir, indice, [datos.release])[0]]);
-  if (datos.area !== undefined) propiedades.push(['area', datos.area]);
-  if (datos.blocked_by !== undefined) propiedades.push(['blocked_by', enlacesA(sesion.config.project_dir, indice, datos.blocked_by)]);
-  if (datos.blocked_reason !== undefined) propiedades.push(['blocked_reason', datos.blocked_reason]);
-  if (datos.relacionadas !== undefined) propiedades.push(['related', enlacesA(sesion.config.project_dir, indice, datos.relacionadas)]);
+  const enlaces = (ids: string[] | undefined): string[] | undefined => (ids === undefined ? undefined : enlacesA(sesion.config.project_dir, indice, ids));
+  const propiedades: Propiedades = {
+    priority: datos.prioridad,
+    assignee: datos.responsable,
+    due: datos.due,
+    release: datos.release === null ? null : enlaces(datos.release === undefined ? undefined : [datos.release])?.[0],
+    area: datos.area,
+    blocked_by: enlaces(datos.blocked_by),
+    blocked_reason: datos.blocked_reason,
+    related: enlaces(datos.relacionadas),
+  };
   const criterio = datos.criterio_nuevo;
-  if (propiedades.length === 0 && criterio === undefined) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
-  const nombres = [...propiedades.map(([clave]) => clave), ...(criterio === undefined ? [] : ['criterio'])];
+  const nombres = [...clavesConValor(propiedades), ...(criterio === undefined ? [] : ['criterio'])];
+  if (nombres.length === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
   return editar(sesion, nota, {
     herramienta: 'tarea_actualizar',
     historial: `actualizada: ${nombres.join(', ')} · pidió: ${pedidoPor}`,

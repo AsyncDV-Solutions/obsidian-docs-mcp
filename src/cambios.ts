@@ -14,6 +14,7 @@ import { escribirBloque, leerBloque } from './bloques.ts';
 import { ahora, slug } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import { separarNota, unirNota } from './frontmatter.ts';
+import type { NotaSeparada } from './frontmatter.ts';
 import type { Leida } from './guardia.ts';
 import { claveContador, formatearId, RUTA_CONTADORES, siguienteNumero } from './ids.ts';
 import type { TipoNumerado } from './ids.ts';
@@ -22,9 +23,19 @@ import { cargarPlantilla, rellenar } from './plantillas.ts';
 import type { TipoPlantilla } from './plantillas.ts';
 import type { Sesion } from './sesion.ts';
 
+// Un reemplazo recuerda el texto que reemplaza (antes): la vista previa muestra su diff.
 export type Operacion =
   | { tipo: 'crear'; ruta: string; contenido: string }
-  | { tipo: 'reemplazar'; ruta: string; contenido: string; versionEsperada: string };
+  | { tipo: 'reemplazar'; ruta: string; contenido: string; versionEsperada: string; antes: string };
+
+// Las propiedades de una nota, en el orden en que se escriben. undefined: sin valor (al crear se omite, al editar no se
+// toca). null: quitar la propiedad, que solo tiene sentido al editar.
+export type Propiedades = Record<string, unknown>;
+
+// Las claves que traen valor, incluido null: lo que un cambio toca. Sirve para decirlo en el historial.
+export function clavesConValor(propiedades: Propiedades): string[] {
+  return Object.entries(propiedades).filter(([, valor]) => valor !== undefined).map(([clave]) => clave);
+}
 
 export type Cambio = { descripcion: string; operaciones: Operacion[] };
 
@@ -75,18 +86,10 @@ function diffLineas(antes: string, despues: string): string {
   return salida.join('\n');
 }
 
-// Operaciones con lo necesario para la vista previa: un reemplazo recuerda el texto anterior para el diff.
-type Op = { tipo: 'crear'; ruta: string; contenido: string } | { tipo: 'reemplazar'; ruta: string; contenido: string; versionEsperada: string; antes: string };
-
 // Registra el cambio y arma la vista previa: avisos primero, después las notas nuevas completas y al
 // final los diffs de las reemplazadas. Las operaciones se aplican en el orden recibido, no en este.
-function preparar(sesion: Sesion, descripcion: string, ops: Op[], avisos: string[] = []): Preparado {
-  const cambio: Cambio = {
-    descripcion,
-    operaciones: ops.map((op) =>
-      op.tipo === 'crear' ? { tipo: 'crear', ruta: op.ruta, contenido: op.contenido } : { tipo: 'reemplazar', ruta: op.ruta, contenido: op.contenido, versionEsperada: op.versionEsperada },
-    ),
-  };
+function preparar(sesion: Sesion, descripcion: string, ops: Operacion[], avisos: string[] = []): Preparado {
+  const cambio: Cambio = { descripcion, operaciones: ops };
   const paraLeer = [...ops.filter((op) => op.tipo === 'crear'), ...ops.filter((op) => op.tipo === 'reemplazar')];
   const cuerpo = paraLeer.map((op) => (op.tipo === 'crear' ? `Crear ${op.ruta}:\n———\n${op.contenido}\n———` : `Cambios en ${op.ruta}:\n${diffLineas(op.antes, op.contenido)}`));
   const { confirmacion, minutos } = sesion.almacen.guardar(cambio);
@@ -109,7 +112,7 @@ export type PedidoCrear = {
   id: string | { numerar: TipoNumerado };
   carpeta: string; // relativa al proyecto, p. ej. 'Tareas' (config.carpetas). Debe existir
   titulo: string;
-  propiedades: Record<string, unknown>; // las propias del tipo, en el orden deseado; undefined se omite
+  propiedades: Propiedades; // las propias del tipo, en el orden deseado; sin valor (undefined o null) se omite
   valores: Record<string, string>; // campos {{…}} de la plantilla
   // Contenido de los bloques gestionados (se escriben con huella). Una plantilla propia en un formato
   // anterior no trae esos bloques: ese contenido entra por sus campos {{…}} y el bloque se omite.
@@ -119,7 +122,7 @@ export type PedidoCrear = {
 };
 
 // El contador: leer, validar, calcular el siguiente número y preparar su reemplazo.
-async function numerar(sesion: Sesion, indice: Indice, tipo: TipoNumerado): Promise<{ id: string; op: Op }> {
+async function numerar(sesion: Sesion, indice: Indice, tipo: TipoNumerado): Promise<{ id: string; op: Operacion }> {
   const cfg = sesion.config;
   let contadores: Leida;
   try {
@@ -145,7 +148,7 @@ async function numerar(sesion: Sesion, indice: Indice, tipo: TipoNumerado): Prom
 export async function crear(sesion: Sesion, indice: Indice, pedido: PedidoCrear): Promise<Preparado> {
   const cfg = sesion.config;
   const momento = ahora(cfg.zona_horaria);
-  const ops: Op[] = [];
+  const ops: Operacion[] = [];
   let id: string;
   if (typeof pedido.id === 'string') {
     id = pedido.id;
@@ -161,7 +164,7 @@ export async function crear(sesion: Sesion, indice: Indice, pedido: PedidoCrear)
     type: pedido.tipo,
     schema: 1,
     title: pedido.titulo,
-    ...pedido.propiedades,
+    ...Object.fromEntries(Object.entries(pedido.propiedades).filter(([, valor]) => valor !== undefined && valor !== null)),
     created: momento.fecha,
     updated: momento.fechaHora,
   });
@@ -177,12 +180,34 @@ export async function crear(sesion: Sesion, indice: Indice, pedido: PedidoCrear)
   return preparar(sesion, `crear ${id}`, ops);
 }
 
+// ——— Reemplazar una nota existente ———
+
+type Abierta = { leida: Leida; sep: NotaSeparada; momento: ReturnType<typeof ahora> };
+
+// Lo primero que hacen editar y regenerarBloque: leer la nota y separar sus propiedades del cuerpo. verificar
+// corre antes de interpretar nada, con lo leído.
+async function abrir(sesion: Sesion, ruta: string, verificar?: (leida: Leida) => void): Promise<Abierta> {
+  const leida = await sesion.guardia.leer(ruta);
+  verificar?.(leida);
+  const sep = separarNota(leida.texto, sesion.config.limites.yaml_max_kb * 1024);
+  return { leida, sep, momento: ahora(sesion.config.zona_horaria) };
+}
+
+// Lo último: renueva «updated» y prepara el reemplazo de la nota con su cuerpo nuevo, conservando el BOM y los saltos
+// de línea. Las propiedades que el llamador haya tocado en sep.doc ya están puestas.
+function cerrar(sesion: Sesion, descripcion: string, abierta: Abierta, cuerpo: string, avisos: string[]): Preparado {
+  const { leida, sep, momento } = abierta;
+  sep.doc.set('updated', momento.fechaHora);
+  const contenido = unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo });
+  return preparar(sesion, descripcion, [{ tipo: 'reemplazar', ruta: leida.ruta, contenido, versionEsperada: leida.version, antes: leida.texto }], avisos);
+}
+
 // ——— Editar ———
 
 export type Edicion = {
   herramienta: string;
   historial?: string; // línea que se agrega al historial; si viene, la nota debe tener ese bloque
-  propiedades?: [string, unknown][]; // en orden; null como valor borra la propiedad
+  propiedades?: Propiedades; // undefined no la toca y null la quita
   bloques?: Record<string, string>; // bloques gestionados a reescribir; cada uno debe existir
   cuerpo?: (cuerpo: string, eol: string) => string; // excepción: cambios fuera de los bloques (agregar un criterio)
 };
@@ -191,12 +216,11 @@ export type Edicion = {
 // no prepara nada. Solo cambia propiedades, bloques gestionados, «updated», el cuerpo que pida el
 // llamador y el historial, en ese orden; todo lo demás queda igual, byte a byte.
 export async function editar(sesion: Sesion, nota: Nota, edicion: Edicion): Promise<Preparado> {
-  const cfg = sesion.config;
   const nombre = nota.id || nota.ruta;
-  const leida = await sesion.guardia.leer(nota.ruta);
-  if (leida.version !== nota.version) throw new ErrorMcp('CONFLICTO', `${nombre} cambió desde que la leíste: vuelve a leerla y a preparar el cambio.`);
-  const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
-  const momento = ahora(cfg.zona_horaria);
+  const abierta = await abrir(sesion, nota.ruta, (leida) => {
+    if (leida.version !== nota.version) throw new ErrorMcp('CONFLICTO', `${nombre} cambió desde que la leíste: vuelve a leerla y a preparar el cambio.`);
+  });
+  const { sep, momento } = abierta;
   const avisos: string[] = [];
 
   // Antes de tocar nada: cada bloque pedido debe existir, y lo editado a mano se advierte (se va a pisar).
@@ -209,11 +233,11 @@ export async function editar(sesion: Sesion, nota: Nota, edicion: Edicion): Prom
     if (bloque.editadoAMano) avisos.push(avisoEditadoAMano(b));
   }
 
-  for (const [clave, valor] of edicion.propiedades ?? []) {
+  for (const [clave, valor] of Object.entries(edicion.propiedades ?? {})) {
+    if (valor === undefined) continue;
     if (valor === null) sep.doc.delete(clave);
     else sep.doc.set(clave, valor);
   }
-  sep.doc.set('updated', momento.fechaHora);
   let cuerpo = sep.cuerpo;
   for (const [b, texto] of bloques) cuerpo = escribirBloque(cuerpo, b, texto, sep.eol);
   if (edicion.cuerpo !== undefined) cuerpo = edicion.cuerpo(cuerpo, sep.eol);
@@ -224,8 +248,7 @@ export async function editar(sesion: Sesion, nota: Nota, edicion: Edicion): Prom
     cuerpo = escribirBloque(cuerpo, 'historial', historial.contenido === '' ? linea : `${historial.contenido}${sep.eol}${linea}`, sep.eol);
     if (historial.editadoAMano) avisos.push('Aviso: el historial fue editado a mano; se agrega la línea igual y se renueva su huella.');
   }
-  const contenido = unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo });
-  return preparar(sesion, `editar ${nombre}`, [{ tipo: 'reemplazar', ruta: nota.ruta, contenido, versionEsperada: leida.version, antes: leida.texto }], avisos);
+  return cerrar(sesion, `editar ${nombre}`, abierta, cuerpo, avisos);
 }
 
 // ——— Regenerar un bloque ———
@@ -233,18 +256,15 @@ export async function editar(sesion: Sesion, nota: Nota, edicion: Edicion): Prom
 // Reemplaza un bloque gestionado de una nota cualquiera del proyecto (p. ej. el tablero).
 // Devuelve null si el bloque ya tiene ese contenido y nadie lo editó a mano: regenerar no cambia nada.
 export async function regenerarBloque(sesion: Sesion, ruta: string, nombre: string, texto: string): Promise<Preparado | null> {
-  const cfg = sesion.config;
-  const leida = await sesion.guardia.leer(ruta);
-  const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
-  if (sep.datos.project_id !== cfg.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${ruta} no pertenece a este proyecto.`);
+  const abierta = await abrir(sesion, ruta);
+  const { sep } = abierta;
+  if (sep.datos.project_id !== sesion.config.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${ruta} no pertenece a este proyecto.`);
   const bloque = leerBloque(sep.cuerpo, nombre);
   if (bloque === null) throw new ErrorMcp('BLOQUE_FALTA', `${ruta} no tiene el bloque «${nombre}».`);
   const igual = texto.replaceAll('\r\n', '\n') === bloque.contenido.replaceAll('\r\n', '\n');
   if (igual && !bloque.editadoAMano) return null;
 
-  sep.doc.set('updated', ahora(cfg.zona_horaria).fechaHora);
   const cuerpo = escribirBloque(sep.cuerpo, nombre, texto, sep.eol);
-  const contenido = unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo });
   const avisos = bloque.editadoAMano ? [avisoEditadoAMano(nombre)] : [];
-  return preparar(sesion, `regenerar ${nombre} de ${ruta}`, [{ tipo: 'reemplazar', ruta, contenido, versionEsperada: leida.version, antes: leida.texto }], avisos);
+  return cerrar(sesion, `regenerar ${nombre} de ${ruta}`, abierta, cuerpo, avisos);
 }

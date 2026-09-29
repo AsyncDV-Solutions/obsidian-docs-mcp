@@ -104,6 +104,13 @@ describe('cambios preparados', () => {
       assert.equal(ops[0]?.tipo === 'reemplazar' ? ops[0].versionEsperada : '', (await sesion.guardia.leer('_contadores.md')).version);
     });
 
+    test('una propiedad con null o con undefined no se escribe al crear: no hay nada que quitar', async () => {
+      const p = await crear(sesion, await sesion.indice(), { ...TAREA, propiedades: { status: 'Por hacer', assignee: null, due: undefined, priority: 'P1' } });
+      const [nota] = p.vistaPrevia.split('Cambios en _contadores.md:\n');
+      assert.match(nota ?? '', /^status: Por hacer\npriority: P1\ncreated: /m);
+      assert.doesNotMatch(nota ?? '', /assignee|due/);
+    });
+
     test('con id explícito: una sola operación, sin tocar los contadores, y los bloques de la plantilla se rellenan', async () => {
       await mkdir(path.join(esc.proyecto, 'Releases'));
       const p = await crear(sesion, await sesion.indice(), {
@@ -148,10 +155,7 @@ describe('cambios preparados', () => {
       const p = await editar(sesion, await notaIndexada(), {
         herramienta: 'tarea_actualizar',
         historial: 'actualizada: priority, assignee, criterio · pidió: Ana',
-        propiedades: [
-          ['priority', 'P0'],
-          ['assignee', null],
-        ],
+        propiedades: { priority: 'P0', assignee: null },
         cuerpo: (cuerpo, eol) => cuerpo.replace('- [ ] a', `- [ ] a${eol}- [ ] b`),
       });
       assert.match(p.vistaPrevia, /^Cambios en Tareas\/DEM-T-0001-x\.md:\n/);
@@ -168,6 +172,17 @@ describe('cambios preparados', () => {
       assert.equal(await readFile(rutaDe(RUTA), 'utf8'), original, 'preparar no escribe');
     });
 
+    test('una propiedad con undefined no se toca y el orden de los cambios es el del registro', async () => {
+      await writeFile(rutaDe(RUTA), notaTarea({ id: 'DEM-T-0001', titulo: 'X', extra: ['assignee: Ana'], cuerpo: CUERPO }), 'utf8');
+      const p = await editar(sesion, await notaIndexada(), { herramienta: 'x', propiedades: { priority: undefined, due: '2026-10-01', assignee: undefined } });
+      assert.match(p.vistaPrevia, /^\+ due: 2026-10-01$/m);
+      assert.doesNotMatch(p.vistaPrevia, /^[-+] (priority|assignee):/m, 'lo que quedó en undefined no cambia');
+      const [op] = sesion.almacen.retirar(p.confirmacion).operaciones;
+      assert.ok(op?.tipo === 'reemplazar');
+      assert.match(op.contenido, /^priority: P2\nassignee: Ana\n/m, 'lo que ya estaba conserva su lugar');
+      assert.match(op.contenido, /^due: 2026-10-01\n/m);
+    });
+
     test('un bloque pedido debe existir; si fue editado a mano, avisa antes de la vista previa', async () => {
       const conBloque = notaTarea({ id: 'DEM-T-0001', titulo: 'X', cuerpo: `${CUERPO}%% asyncdv:inicio que_hace %%\n%% asyncdv:fin %%\n` });
       await writeFile(rutaDe(RUTA), conBloque, 'utf8');
@@ -181,17 +196,24 @@ describe('cambios preparados', () => {
     test('sin historial no se agrega línea; con historial, el bloque debe existir', async () => {
       const sinHistorial = notaTarea({ id: 'DEM-T-0001', titulo: 'X', cuerpo: '## Descripción\nTexto.\n' });
       await writeFile(rutaDe(RUTA), sinHistorial, 'utf8');
-      const p = await editar(sesion, await notaIndexada(), { herramienta: 'x', propiedades: [['priority', 'P3']] });
+      const p = await editar(sesion, await notaIndexada(), { herramienta: 'x', propiedades: { priority: 'P3' } });
       assert.match(p.vistaPrevia, /\+ priority: P3/);
       assert.doesNotMatch(p.vistaPrevia, /· x$/m);
-      assert.equal(await codigoDe(editar(sesion, await notaIndexada(), { herramienta: 'x', historial: 'algo', propiedades: [['priority', 'P3']] })), 'BLOQUE_FALTA');
+      assert.equal(await codigoDe(editar(sesion, await notaIndexada(), { herramienta: 'x', historial: 'algo', propiedades: { priority: 'P3' } })), 'BLOQUE_FALTA');
+    });
+
+    test('si la nota cambió y además quedó mal formada, responde el conflicto y no el error de formato', async () => {
+      await writeFile(rutaDe(RUTA), notaTarea({ id: 'DEM-T-0001', titulo: 'X', cuerpo: CUERPO }), 'utf8');
+      const nota = await notaIndexada();
+      await writeFile(rutaDe(RUTA), '---\ntitle: [sin cerrar\n---\n', 'utf8');
+      assert.equal(await codigoDe(editar(sesion, nota, { herramienta: 'x', propiedades: { priority: 'P3' } })), 'CONFLICTO');
     });
 
     test('si la nota cambió desde que se indexó, no se prepara nada', async () => {
       await writeFile(rutaDe(RUTA), notaTarea({ id: 'DEM-T-0001', titulo: 'X', cuerpo: CUERPO }), 'utf8');
       const nota = await notaIndexada();
       await writeFile(rutaDe(RUTA), `${await readFile(rutaDe(RUTA), 'utf8')}Editado en Obsidian.\n`, 'utf8');
-      assert.equal(await codigoDe(editar(sesion, nota, { herramienta: 'x', propiedades: [['priority', 'P3']] })), 'CONFLICTO');
+      assert.equal(await codigoDe(editar(sesion, nota, { herramienta: 'x', propiedades: { priority: 'P3' } })), 'CONFLICTO');
     });
   });
 

@@ -124,6 +124,44 @@ describe('tareas de punta a punta', () => {
     assert.equal(await codigoDe(prepararTareaNueva(sesion, sinPedido)), 'FALTA_PEDIDO_POR');
   });
 
+  test('cambiar de estado escribe o quita blocked_by, blocked_reason y resolution según el destino', async () => {
+    await aplicarCambio(sesion, (await crear({ titulo: 'A' })).confirmacion);
+    await aplicarCambio(sesion, (await crear({ titulo: 'B' })).confirmacion);
+    const rutaB = path.join(esc.proyecto, 'Tareas', 'DEM-T-0002-b.md');
+    const cambiar = async (d: { estado: 'Bloqueado' | 'Completado' | 'Por hacer'; blocked_by?: string[]; blocked_reason?: string; resolution?: 'cancelada'; motivo?: string }): Promise<string> => {
+      const b = await tarea('DEM-T-0002');
+      const p = await prepararCambioEstado(sesion, { ...d, id: b.id, version_esperada: b.version, pedido_por: 'Ana' });
+      await aplicarCambio(sesion, (p ?? assert.fail('debería haber un cambio')).confirmacion);
+      return readFile(rutaB, 'utf8');
+    };
+    const bloqueada = await cambiar({ estado: 'Bloqueado', blocked_by: ['DEM-T-0001'], blocked_reason: '   ' });
+    assert.match(bloqueada, /^blocked_by:\n  - .*DEM-T-0001/m);
+    assert.doesNotMatch(bloqueada, /^blocked_reason:/m, 'un motivo en blanco no se escribe');
+    const completada = await cambiar({ estado: 'Completado', resolution: 'cancelada', motivo: 'ya no aplica' });
+    assert.match(completada, /^resolution: cancelada$/m);
+    const reabierta = await cambiar({ estado: 'Por hacer', motivo: 'sí aplica' });
+    assert.doesNotMatch(reabierta, /^resolution:/m, 'reabrir quita la resolución anterior');
+  });
+
+  test('actualizar pone lo que se pide y quita con null: release, responsable y due', async () => {
+    await escribirNota(esc.proyecto, 'Releases/DEM-R-v1.0.0.md', ['---', 'id: DEM-R-v1.0.0', 'project_id: demo', 'type: release', 'schema: 1', 'title: Primera', 'release_status: Borrador', '---', ''].join('\n'));
+    await aplicarCambio(sesion, (await crear()).confirmacion);
+    const ruta = path.join(esc.proyecto, 'Tareas', ARCHIVO);
+    const actualizar = async (d: { release?: string | null; responsable?: string | null; due?: string | null }): Promise<string> => {
+      const t = await tarea('DEM-T-0001');
+      await aplicarCambio(sesion, (await prepararActualizacion(sesion, { ...d, id: t.id, version_esperada: t.version, pedido_por: 'Ana' })).confirmacion);
+      return readFile(ruta, 'utf8');
+    };
+    const puesta = await actualizar({ release: 'DEM-R-v1.0.0', responsable: 'Ana', due: '2026-10-01' });
+    assert.match(puesta, /^release: .*DEM-R-v1\.0\.0/m);
+    assert.match(puesta, /^assignee: Ana$/m);
+    assert.match(puesta, /^due: 2026-10-01$/m);
+    const quitada = await actualizar({ release: null, responsable: null });
+    assert.doesNotMatch(quitada, /^release:/m);
+    assert.doesNotMatch(quitada, /^assignee:/m);
+    assert.match(quitada, /^due: 2026-10-01$/m, 'lo que no se nombró queda como estaba');
+  });
+
   test('un código de confirmación sirve una sola vez', async () => {
     const p = await crear();
     await aplicarCambio(sesion, p.confirmacion);
