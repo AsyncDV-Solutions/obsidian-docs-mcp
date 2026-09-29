@@ -1,44 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { aplicarCambio } from '../aplicar.ts';
-import type { Preparado } from '../cambios.ts';
 import { ESTADOS, PRIORIDADES, RESOLUCIONES } from '../dominio.ts';
 import { ok } from '../errores.ts';
-import type { Resultado } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../tareas.ts';
-import { ejecutar, quienPide } from './comun.ts';
+import { ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, PREPARA, quienPide, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
-
-// Las herramientas que PREPARAN no cambian nada del entorno: solo dejan un cambio pendiente.
-export const PREPARA = { readOnlyHint: true, openWorldHint: false };
-export const UNA_LINEA = /^[^\r\n]*$/;
-export const ID = z.string().regex(/^[A-Z]{2,5}-(T|F|I|ADR|G)-\d{4,}$/);
-export const ID_TAREA = z.string().regex(/^[A-Z]{2,5}-(T|I)-\d{4,}$/);
-export const VERSION_NOTA = z.string().regex(/^[0-9a-f]{16}$/).describe('La versión que entregó nota_leer');
-export const FECHA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-export const RELEASE = z.string().regex(/^[A-Z]{2,5}-R-v\d+\.\d+\.\d+$/);
-export const PEDIDO_POR = z
-  .string()
-  .min(1)
-  .max(80)
-  .regex(UNA_LINEA)
-  .optional()
-  .describe('Quién pidió el cambio (trazabilidad, no autenticación). Si se omite, se usa el usuario configurado');
-export const MOTIVO = z.string().max(500).regex(UNA_LINEA);
-
-// Texto común de toda vista previa: no se escribió nada y cómo se confirma.
-export function respuestaPreparada(p: Preparado): Resultado {
-  const minutos = Math.max(1, Math.round((p.expira.getTime() - Date.now()) / 60_000));
-  return ok(
-    [
-      'VISTA PREVIA: todavía no se escribió nada.',
-      p.vistaPrevia,
-      '',
-      `Para aplicar: muéstrale esta vista previa a la persona y, solo si la aprueba, llama a cambio_aplicar con confirmacion="${p.confirmacion}". Vence en ${minutos} min y sirve una sola vez.`,
-    ].join('\n'),
-  );
-}
 
 export function registrarTareas(server: McpServer, entorno: Entorno): void {
   const v = entorno.vocabulario;

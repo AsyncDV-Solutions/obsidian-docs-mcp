@@ -13,9 +13,8 @@ import { EVIDENCIAS, PRIORIDADES, SEVERIDADES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { prepararTablero } from '../tablero.ts';
-import { ejecutar, quienPide } from './comun.ts';
+import { ejecutar, FECHA, ID, MOTIVO, PEDIDO_POR, PREPARA, quienPide, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno, Vocabulario } from './comun.ts';
-import { FECHA, ID, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './tareas.ts';
 
 const FUENTE = z.string().min(3).max(300).regex(UNA_LINEA).describe('tipo:valor[@sha], p. ej. repo:src/pedidos/crear.ts@3e22c9c');
 const SHA = z.string().regex(/^[0-9a-f]{7,40}$/);

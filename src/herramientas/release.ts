@@ -3,9 +3,8 @@ import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { comandosTag, listaVerificacion, prepararBorradorRelease, proponer } from '../release.ts';
-import { ejecutar } from './comun.ts';
+import { ejecutar, PREPARA, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
-import { PREPARA, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './tareas.ts';
 
 const LISTA = z.array(z.string().min(1).max(500).regex(UNA_LINEA)).max(50).optional();
 

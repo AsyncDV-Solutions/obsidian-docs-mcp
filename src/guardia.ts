@@ -19,8 +19,11 @@ export type Guardia = {
   listar(): Promise<{ rutas: string[]; truncado: boolean }>;
 };
 
+// La versión de una nota es la huella de sus bytes, recortada: la entrega nota_leer y se exige para editar.
+export const LARGO_VERSION = 16;
+
 export function versionDe(contenido: Buffer | string): string {
-  return createHash('sha256').update(contenido).digest('hex').slice(0, 16);
+  return createHash('sha256').update(contenido).digest('hex').slice(0, LARGO_VERSION);
 }
 
 // Valida una ruta relativa a la carpeta del proyecto y la devuelve normalizada con "/".
