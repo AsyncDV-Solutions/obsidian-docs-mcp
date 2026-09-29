@@ -106,7 +106,7 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
     async ({ id, ruta }) =>
       ejecutar('nota_leer', async () => {
         const sesion = entorno.exigir();
-        const leida = await leerNota(sesion.guardia, sesion.config, { id, ruta });
+        const leida = await leerNota(sesion, { id, ruta });
         return ok([`ruta: ${leida.ruta}`, `version: ${leida.version}`, AVISO_DATOS, '———', leida.texto].join('\n'));
       }),
   );

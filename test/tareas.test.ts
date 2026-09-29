@@ -6,6 +6,7 @@ import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import { crearSesion } from '../src/sesion.ts';
 import type { Sesion } from '../src/sesion.ts';
+import { conConfig } from './sesiones.ts';
 import { codigoDe, crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 import { comoLista, filtrar } from '../src/notas.ts';
@@ -95,24 +96,32 @@ describe('tareas de punta a punta', () => {
     assert.equal(await codigoDe(prepararActualizacion(sesion, { id: t3.id, version_esperada: t3.version, pedido_por: 'Ana', criterio_nuevo: '%% asyncdv:fin %%' })), 'CAMPO_INVALIDO');
   });
 
-  test('sin pedido_por se usa el usuario configurado; sin ninguno, FALTA_PEDIDO_POR, pero después de validar el texto', async () => {
+  test('sin pedido_por se usa el usuario configurado, ya limpio; sin ninguno, FALTA_PEDIDO_POR, pero después de validar el texto', async () => {
     const { pedido_por: _quitado, ...sinPedido } = BASE;
-    const conUsuario: Sesion = { ...sesion, config: { ...sesion.config, usuario: 'Beatriz' } };
+    const conUsuario = conConfig(sesion, (c) => ({ ...c, usuario: '  Beatriz  ' }));
     const nueva = await prepararTareaNueva(conUsuario, sinPedido);
     assert.ok('confirmacion' in nueva);
-    assert.match(nueva.vistaPrevia, /creada en «Por hacer» · pidió: Beatriz/);
-    await aplicarCambio(sesion, nueva.confirmacion);
-    const t = await tarea('DEM-T-0001');
-    const estado = await prepararCambioEstado(conUsuario, { id: t.id, version_esperada: t.version, estado: 'En curso' });
+    assert.match(nueva.vistaPrevia, /creada en «Por hacer» · pidió: Beatriz · tarea_crear/, 'sin los espacios del usuario configurado');
+    await aplicarCambio(conUsuario, nueva.confirmacion);
+    const creada = await tarea('DEM-T-0001');
+    const estado = await prepararCambioEstado(conUsuario, { id: creada.id, version_esperada: creada.version, estado: 'En curso' });
     assert.match((estado ?? assert.fail('debería haber un cambio')).vistaPrevia, /Por hacer → En curso · pidió: Beatriz · tarea_cambiar_estado/);
-    const criterio = await prepararActualizacion(conUsuario, { id: t.id, version_esperada: t.version, criterio_nuevo: 'Otro criterio' });
+    const criterio = await prepararActualizacion(conUsuario, { id: creada.id, version_esperada: creada.version, criterio_nuevo: 'Otro criterio' });
     assert.match(criterio.vistaPrevia, /actualizada: criterio · pidió: Beatriz/);
-    const explicito = await prepararActualizacion(conUsuario, { id: t.id, version_esperada: t.version, pedido_por: 'Ana', criterio_nuevo: 'Otro criterio' });
+    const explicito = await prepararActualizacion(conUsuario, { id: creada.id, version_esperada: creada.version, pedido_por: 'Ana', criterio_nuevo: 'Otro criterio' });
     assert.match(explicito.vistaPrevia, /actualizada: criterio · pidió: Ana/);
     assert.doesNotMatch(explicito.vistaPrevia, /actualizada: criterio · pidió: Beatriz/, 'el explícito gana');
+    const conMarcador = conConfig(sesion, (c) => ({ ...c, usuario: 'Bea %% asyncdv:fin %%' }));
+    assert.equal(await codigoDe(prepararTareaNueva(conMarcador, sinPedido)), 'CAMPO_INVALIDO', 'el usuario configurado se valida como cualquier texto libre');
 
+    const MARCADOR = 'x %% asyncdv:fin %%';
+    const conTextoInvalido: [string, () => Promise<unknown>][] = [
+      ['tarea_crear', () => prepararTareaNueva(sesion, { ...sinPedido, descripcion: MARCADOR })],
+      ['tarea_cambiar_estado', () => prepararCambioEstado(sesion, { id: creada.id, version_esperada: creada.version, estado: 'Pendiente', motivo: MARCADOR })],
+      ['tarea_actualizar', () => prepararActualizacion(sesion, { id: creada.id, version_esperada: creada.version, criterio_nuevo: MARCADOR })],
+    ];
+    for (const [herramienta, preparar] of conTextoInvalido) assert.equal(await codigoDe(preparar()), 'CAMPO_INVALIDO', `${herramienta}: primero el texto y después quién lo pide`);
     assert.equal(await codigoDe(prepararTareaNueva(sesion, sinPedido)), 'FALTA_PEDIDO_POR');
-    assert.equal(await codigoDe(prepararTareaNueva(sesion, { ...sinPedido, descripcion: 'x %% asyncdv:fin %%' })), 'CAMPO_INVALIDO', 'primero el texto y después quién lo pide');
   });
 
   test('un código de confirmación sirve una sola vez', async () => {

@@ -11,7 +11,8 @@ import { escritorReal } from '../src/escritura.ts';
 import type { Escritor } from '../src/escritura.ts';
 import { crearSesion } from '../src/sesion.ts';
 import { prepararTareaNueva } from '../src/tareas.ts';
-import { codigoDe, crearEscenario, escribirNota, notaContadores } from './helpers.ts';
+import { codigoDe, crearEscenario, escribirNota, notaContadores, relojFalso } from './helpers.ts';
+import { conConfig } from './sesiones.ts';
 import type { Escenario } from './helpers.ts';
 
 const TAREA = { titulo: 'Encender el correo', descripcion: 'Pasar a la key por site.', criterios: ['Key en Vault'], prioridad: 'P1', estado_inicial: 'Por hacer' as const, pedido_por: 'Ana' };
@@ -23,7 +24,8 @@ describe('aplicar, con el escritor de la sesión', () => {
   let esc: Escenario;
   let ctx: Contexto;
   const enProyecto = (relativa: string): string => path.join(esc.proyecto, ...relativa.split('/'));
-  const existe = (relativa: string): Promise<boolean> => access(enProyecto(relativa)).then(() => true, () => false);
+  const relativa = (absoluta: string): string => path.relative(esc.proyecto, absoluta).replaceAll('\\', '/');
+  const existe = (ruta: string): Promise<boolean> => access(enProyecto(ruta)).then(() => true, () => false);
 
   // Una tarea nueva son dos operaciones, en este orden: reemplazar los contadores y crear la nota.
   async function preparar(escritor: Escritor): Promise<{ sesion: ReturnType<typeof crearSesion>; p: Preparado }> {
@@ -45,21 +47,25 @@ describe('aplicar, con el escritor de la sesión', () => {
     await esc.limpiar();
   });
 
-  test('todo lo que se escribe pasa por el escritor, con la versión esperada', async () => {
+  test('todo lo que se escribe pasa por el escritor, con la versión que se leyó al preparar', async () => {
     const llamadas: string[] = [];
+    const versiones: string[] = [];
     const registrador: Escritor = {
       async crearExclusivo(absoluta, contenido) {
-        llamadas.push(`crear ${path.relative(esc.proyecto, absoluta).replaceAll('\\', '/')}`);
+        llamadas.push(`crear ${relativa(absoluta)}`);
         await escritorReal.crearExclusivo(absoluta, contenido);
       },
       async reemplazarAtomico(absoluta, contenido, versionEsperada) {
-        llamadas.push(`reemplazar ${path.relative(esc.proyecto, absoluta).replaceAll('\\', '/')} (${versionEsperada.length} caracteres de versión)`);
+        llamadas.push(`reemplazar ${relativa(absoluta)}`);
+        versiones.push(versionEsperada);
         await escritorReal.reemplazarAtomico(absoluta, contenido, versionEsperada);
       },
     };
+    const versionLeida = (await ctx.guardia.leer('_contadores.md')).version;
     const { sesion, p } = await preparar(registrador);
     assert.deepEqual(await aplicarCambio(sesion, p.confirmacion), ['reemplazar _contadores.md', `crear ${RUTA_TAREA}`]);
-    assert.deepEqual(llamadas, ['reemplazar _contadores.md (16 caracteres de versión)', `crear ${RUTA_TAREA}`]);
+    assert.deepEqual(llamadas, ['reemplazar _contadores.md', `crear ${RUTA_TAREA}`]);
+    assert.deepEqual(versiones, [versionLeida]);
     assert.match(await readFile(enProyecto('_contadores.md'), 'utf8'), /ultimo_T: 1/);
     assert.ok(await existe(RUTA_TAREA));
   });
@@ -105,6 +111,24 @@ describe('aplicar, con el escritor de la sesión', () => {
     assert.equal(await codigoDe(aplicarCambio(sesion, p.confirmacion)), 'ESCRITURA');
     assert.match(await readFile(enProyecto('_contadores.md'), 'utf8'), /ultimo_T: 0/);
     assert.equal(await existe(RUTA_TAREA), false);
+  });
+
+  test('un fallo después de retirar el código gasta cupo: el siguiente espera al tope sin perder su código', async () => {
+    const roto: Escritor = {
+      ...escritorReal,
+      async crearExclusivo() {
+        throw new Error('EIO');
+      },
+    };
+    const reloj = relojFalso();
+    const sesion = conConfig(crearSesion(ctx), (c) => ({ ...c, limites: { ...c.limites, escrituras_por_minuto: 1 } }), { escritor: roto, reloj });
+    const primero = await prepararTareaNueva(sesion, TAREA);
+    const segundo = await prepararTareaNueva(sesion, TAREA);
+    assert.ok('confirmacion' in primero && 'confirmacion' in segundo);
+    assert.equal(await codigoDe(aplicarCambio(sesion, primero.confirmacion)), 'PARCIAL');
+    assert.equal(await codigoDe(aplicarCambio(sesion, segundo.confirmacion)), 'LIMITE', 'el fallo ya gastó el cupo');
+    reloj.avanzar(60_000);
+    assert.equal(await codigoDe(aplicarCambio(sesion, segundo.confirmacion)), 'CONFLICTO', 'el código seguía vivo: llega a verificar y los contadores ya avanzaron');
   });
 
   test('aunque aplicar falle, el código ya no sirve y el bloqueo queda libre', async () => {

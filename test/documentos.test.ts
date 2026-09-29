@@ -16,6 +16,7 @@ import type { DatosFuncionalidad, DatosGuia } from '../src/documentos.ts';
 import { separarNota } from '../src/frontmatter.ts';
 import { crearSesion } from '../src/sesion.ts';
 import type { Sesion } from '../src/sesion.ts';
+import { conConfig } from './sesiones.ts';
 import { codigoDe, crearEscenario, escribirNota, notaContadores, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 import { generarTablero, prepararTablero } from '../src/tablero.ts';
@@ -343,25 +344,32 @@ describe('documentos y tablero', () => {
     for (const [herramienta, preparar] of casos) assert.equal(await codigoDe(preparar()), 'CAMPO_INVALIDO', herramienta);
   });
 
-  test('sin pedido_por, la incidencia y las dos actualizaciones con evidencia usan el usuario configurado', async () => {
-    const conUsuario: Sesion = { ...sesion, config: { ...sesion.config, usuario: 'Beatriz' } };
+  test('sin pedido_por, la incidencia y las dos actualizaciones con evidencia usan el usuario configurado, ya limpio', async () => {
+    const conUsuario = conConfig(sesion, (c) => ({ ...c, usuario: '  Beatriz  ' }));
     const funcionalidadCreada = await crearFuncionalidad();
     await aplicarCambio(sesion, (await prepararGuia(sesion, GUIA)).confirmacion);
     const guia = (await indice()).notas.find((n) => n.tipo === 'guia') ?? assert.fail('falta la guía');
-    const incidencia = await prepararIncidencia(conUsuario, {
-      titulo: 'Falla',
-      sintoma: 's',
-      impacto: 'i',
-      severity: 'alta',
-      environment: 'produccion',
-      detected: '2026-09-29',
-      prioridad: 'P1',
-      fuentes: ['repo:x.ts@abc1234'],
-    });
-    const deFuncionalidad = await prepararActualizacionFuncionalidad(conUsuario, { id: funcionalidadCreada.id, version_esperada: funcionalidadCreada.version, que_hace: 'Nuevo.' });
-    const deGuia = await prepararActualizacionGuia(conUsuario, { id: guia.id, version_esperada: guia.version, pasos: 'x' });
-    for (const p of [incidencia, deFuncionalidad, deGuia]) assert.match(p.vistaPrevia, /pidió: Beatriz/);
-    assert.equal(await codigoDe(prepararActualizacionGuia(sesion, { id: guia.id, version_esperada: guia.version, pasos: 'x' })), 'FALTA_PEDIDO_POR', 'sin usuario configurado');
+    const MARCADOR = 'texto %% asyncdv:fin %%';
+    const incidencia = (sintoma: string) => ({ titulo: 'Falla', sintoma, impacto: 'i', severity: 'alta', environment: 'produccion', detected: '2026-09-29', prioridad: 'P1', fuentes: ['repo:x.ts@abc1234'] });
+    const deFuncionalidad = (que_hace: string) => ({ id: funcionalidadCreada.id, version_esperada: funcionalidadCreada.version, que_hace });
+    const deGuia = (pasos: string) => ({ id: guia.id, version_esperada: guia.version, pasos });
+
+    const previas = [
+      await prepararIncidencia(conUsuario, incidencia('s')),
+      await prepararActualizacionFuncionalidad(conUsuario, deFuncionalidad('Nuevo.')),
+      await prepararActualizacionGuia(conUsuario, deGuia('x')),
+    ];
+    for (const p of previas) assert.match(p.vistaPrevia, /pidió: Beatriz\b/, 'sin los espacios del usuario configurado');
+
+    const casos: [string, (texto: string) => Promise<unknown>][] = [
+      ['incidencia_crear', (texto) => prepararIncidencia(sesion, incidencia(texto))],
+      ['funcionalidad_actualizar', (texto) => prepararActualizacionFuncionalidad(sesion, deFuncionalidad(texto))],
+      ['guia_actualizar', (texto) => prepararActualizacionGuia(sesion, deGuia(texto))],
+    ];
+    for (const [herramienta, preparar] of casos) {
+      assert.equal(await codigoDe(preparar(MARCADOR)), 'CAMPO_INVALIDO', `${herramienta}: primero el texto`);
+      assert.equal(await codigoDe(preparar('bien')), 'FALTA_PEDIDO_POR', `${herramienta}: sin usuario configurado`);
+    }
   });
 
   test('el tablero agrupa por estado, bloqueos, release y urgentes', async () => {

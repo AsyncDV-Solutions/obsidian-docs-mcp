@@ -8,7 +8,7 @@ import { relojFalso } from './helpers.ts';
 const cambio = (descripcion: string): Cambio => ({ descripcion, operaciones: [] });
 const MINUTO = 60_000;
 
-function codigoDe(accion: () => unknown): string {
+function codigoDeAccion(accion: () => unknown): string {
   try {
     accion();
   } catch (error) {
@@ -20,45 +20,51 @@ function codigoDe(accion: () => unknown): string {
 
 describe('almacén de cambios preparados', () => {
   test('un código entrega su cambio una sola vez', () => {
-    const almacen = crearAlmacen(relojFalso());
+    const almacen = crearAlmacen(relojFalso(), 5);
     const pedido = cambio('a');
-    const { confirmacion } = almacen.guardar(pedido, 5);
-    assert.ok(confirmacion.length >= 16, 'el código no se puede adivinar');
+    const { confirmacion, minutos } = almacen.guardar(pedido);
+    assert.equal(minutos, 5, 'dice cuánto tarda en vencer');
     assert.equal(almacen.retirar(confirmacion), pedido);
-    assert.equal(codigoDe(() => almacen.retirar(confirmacion)), 'CONFIRMACION_INVALIDA');
+    assert.equal(codigoDeAccion(() => almacen.retirar(confirmacion)), 'CONFIRMACION_INVALIDA');
+  });
+
+  test('el código son 128 bits aleatorios, distintos en cada cambio', () => {
+    const almacen = crearAlmacen(relojFalso(), 5);
+    const codigos = new Set(Array.from({ length: 200 }, () => almacen.guardar(cambio('a')).confirmacion));
+    assert.equal(codigos.size, 200);
+    for (const codigo of codigos) assert.match(codigo, /^[A-Za-z0-9_-]{22}$/, '16 bytes en base64url');
   });
 
   test('cada cambio recibe su propio código y un código inventado no sirve', () => {
-    const almacen = crearAlmacen(relojFalso());
-    const a = almacen.guardar(cambio('a'), 5).confirmacion;
-    const b = almacen.guardar(cambio('b'), 5).confirmacion;
-    assert.notEqual(a, b);
-    assert.equal(almacen.retirar(b).descripcion, 'b');
-    assert.equal(almacen.retirar(a).descripcion, 'a');
-    assert.equal(codigoDe(() => almacen.retirar('no-existe')), 'CONFIRMACION_INVALIDA');
+    const almacen = crearAlmacen(relojFalso(), 5);
+    const codigoA = almacen.guardar(cambio('a')).confirmacion;
+    const codigoB = almacen.guardar(cambio('b')).confirmacion;
+    assert.equal(almacen.retirar(codigoB).descripcion, 'b');
+    assert.equal(almacen.retirar(codigoA).descripcion, 'a');
+    assert.equal(codigoDeAccion(() => almacen.retirar('no-existe')), 'CONFIRMACION_INVALIDA');
   });
 
-  test('el código vence a los minutos pedidos y no un instante antes', () => {
+  test('el código vence a los minutos del almacén y no un instante antes', () => {
     const reloj = relojFalso();
-    const almacen = crearAlmacen(reloj);
-    const { confirmacion, expira } = almacen.guardar(cambio('a'), 5);
-    assert.equal(expira.getTime(), reloj() + 5 * MINUTO);
+    const almacen = crearAlmacen(reloj, 5);
+    const primero = almacen.guardar(cambio('a')).confirmacion;
     reloj.avanzar(5 * MINUTO - 1);
-    assert.equal(almacen.retirar(confirmacion).descripcion, 'a', 'un milisegundo antes todavía sirve');
+    assert.equal(almacen.retirar(primero).descripcion, 'a', 'un milisegundo antes todavía sirve');
 
-    const otro = almacen.guardar(cambio('b'), 5).confirmacion;
+    const segundo = almacen.guardar(cambio('b')).confirmacion;
     reloj.avanzar(5 * MINUTO);
-    assert.equal(codigoDe(() => almacen.retirar(otro)), 'CONFIRMACION_INVALIDA', 'al cumplirse el plazo ya venció');
+    assert.equal(codigoDeAccion(() => almacen.retirar(segundo)), 'CONFIRMACION_INVALIDA', 'al cumplirse el plazo ya venció');
   });
 
-  test('cada código vence según los minutos con que se guardó', () => {
+  test('cada almacén vence según los minutos con que se creó', () => {
     const reloj = relojFalso();
-    const almacen = crearAlmacen(reloj);
-    const corto = almacen.guardar(cambio('corto'), 1).confirmacion;
-    const largo = almacen.guardar(cambio('largo'), 10).confirmacion;
+    const corto = crearAlmacen(reloj, 1);
+    const largo = crearAlmacen(reloj, 10);
+    const codigoCorto = corto.guardar(cambio('corto')).confirmacion;
+    const codigoLargo = largo.guardar(cambio('largo')).confirmacion;
     reloj.avanzar(2 * MINUTO);
-    assert.equal(codigoDe(() => almacen.retirar(corto)), 'CONFIRMACION_INVALIDA');
-    assert.equal(almacen.retirar(largo).descripcion, 'largo');
+    assert.equal(codigoDeAccion(() => corto.retirar(codigoCorto)), 'CONFIRMACION_INVALIDA');
+    assert.equal(largo.retirar(codigoLargo).descripcion, 'largo');
   });
 });
 
@@ -69,14 +75,14 @@ describe('tope de escrituras por minuto', () => {
     tope.contar();
     tope.exigir();
     tope.contar();
-    assert.equal(codigoDe(() => tope.exigir()), 'LIMITE');
+    assert.equal(codigoDeAccion(() => tope.exigir()), 'LIMITE');
   });
 
   test('exigir no gasta cupo: solo cuenta lo que se cuenta', () => {
     const tope = crearTope(relojFalso(), 1);
     for (let i = 0; i < 5; i++) tope.exigir();
     tope.contar();
-    assert.equal(codigoDe(() => tope.exigir()), 'LIMITE');
+    assert.equal(codigoDeAccion(() => tope.exigir()), 'LIMITE');
   });
 
   test('la ventana es deslizante: cada cupo se libera un minuto después de gastarse', () => {
@@ -86,11 +92,11 @@ describe('tope de escrituras por minuto', () => {
     reloj.avanzar(30_000);
     tope.contar();
     reloj.avanzar(MINUTO - 30_001); // 59 999 ms desde la primera
-    assert.equal(codigoDe(() => tope.exigir()), 'LIMITE');
+    assert.equal(codigoDeAccion(() => tope.exigir()), 'LIMITE');
     reloj.avanzar(1); // 60 000 ms: la primera sale de la ventana
     tope.exigir();
     tope.contar();
-    assert.equal(codigoDe(() => tope.exigir()), 'LIMITE', 'la segunda sigue dentro');
+    assert.equal(codigoDeAccion(() => tope.exigir()), 'LIMITE', 'la segunda sigue dentro');
     reloj.avanzar(30_000);
     tope.exigir();
   });

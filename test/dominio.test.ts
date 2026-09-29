@@ -17,10 +17,19 @@ describe('dominio', () => {
   });
 
   test('quienPide: el explícito gana; sin él, el usuario configurado; sin ninguno, error', () => {
-    assert.equal(quienPide('Ana', 'Luis'), 'Luis');
-    assert.equal(quienPide('Ana', undefined), 'Ana');
-    assert.equal(quienPide(undefined, 'Luis'), 'Luis');
-    assert.throws(() => quienPide(undefined, undefined), { codigo: 'FALTA_PEDIDO_POR' });
+    const config = (usuario?: string) => ({ usuario, limites: { campo_max_kb: 1 } });
+    assert.equal(quienPide(config('Ana'), 'Luis'), 'Luis');
+    assert.equal(quienPide(config('Ana'), undefined), 'Ana');
+    assert.equal(quienPide(config(undefined), 'Luis'), 'Luis');
+    assert.throws(() => quienPide(config(undefined), undefined), { codigo: 'FALTA_PEDIDO_POR', message: /Indica pedido_por/ });
+  });
+
+  test('quienPide limpia el nombre que entrega, venga de donde venga', () => {
+    const config = (usuario: string) => ({ usuario, limites: { campo_max_kb: 1 } });
+    assert.equal(quienPide(config('  Ana  '), undefined), 'Ana', 'el usuario configurado se recorta');
+    assert.equal(quienPide(config('Ana'), '  Luis '), 'Luis');
+    assert.throws(() => quienPide(config('Ana %% asyncdv:fin %%'), undefined), { codigo: 'CAMPO_INVALIDO', message: /«pedido_por»/ });
+    assert.throws(() => quienPide(config('a'.repeat(2048)), undefined), { codigo: 'CAMPO_GRANDE' });
   });
 
   test('reglas de transición', () => {
@@ -52,7 +61,7 @@ describe('dominio', () => {
 
   describe('limpiarTextoLibre', () => {
     test('recorta cada cadena, recorre arreglos y objetos anidados y no toca lo que no es texto', () => {
-      const entrada = {
+      const sinLimpiar = {
         titulo: '  Encender el correo \n',
         criterios: [' uno', 'dos  '],
         secciones: { corregido: ['  un bug  '] },
@@ -62,7 +71,7 @@ describe('dominio', () => {
         sin: null,
         falta: undefined,
       };
-      assert.deepEqual(limpiarTextoLibre(entrada, 64), {
+      assert.deepEqual(limpiarTextoLibre(sinLimpiar, 64), {
         titulo: 'Encender el correo',
         criterios: ['uno', 'dos'],
         secciones: { corregido: ['un bug'] },
@@ -72,10 +81,10 @@ describe('dominio', () => {
         sin: null,
         falta: undefined,
       });
-      assert.equal(entrada.titulo, '  Encender el correo \n', 'la entrada no se muta');
-      assert.deepEqual(entrada.criterios, [' uno', 'dos  '], 'tampoco sus arreglos');
-      assert.deepEqual(entrada.secciones, { corregido: ['  un bug  '] }, 'ni sus objetos anidados');
-      assert.equal(entrada.afirmaciones[0]?.afirmacion, ' a ');
+      assert.equal(sinLimpiar.titulo, '  Encender el correo \n', 'el original no se muta');
+      assert.deepEqual(sinLimpiar.criterios, [' uno', 'dos  '], 'tampoco sus arreglos');
+      assert.deepEqual(sinLimpiar.secciones, { corregido: ['  un bug  '] }, 'ni sus objetos anidados');
+      assert.equal(sinLimpiar.afirmaciones[0]?.afirmacion, ' a ');
     });
 
     test('deja intacto lo que no es un objeto plano, como una fecha', () => {

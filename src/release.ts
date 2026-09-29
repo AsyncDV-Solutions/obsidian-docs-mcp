@@ -143,15 +143,15 @@ export type DatosRelease = {
 };
 
 // Contenido del bloque «release»: resumen, los 6 tipos de Keep a Changelog, migraciones, verificación y comandos.
-export function contenidoRelease(ctx: Contexto, d: DatosRelease): string {
+export function contenidoRelease(ctx: Contexto, datos: DatosRelease): string {
   const lista = (items: string[] | undefined, vacio: string): string[] => (items === undefined || items.length === 0 ? [vacio] : items.map((i) => `- ${i}`));
-  const lineas = ['## Resumen', d.resumen, ''];
+  const lineas = ['## Resumen', datos.resumen, ''];
   for (const clave of Object.keys(SECCIONES) as ClaveSeccion[]) {
-    lineas.push(`## ${SECCIONES[clave]}`, ...lista(d.secciones[clave], '(nada)'), '');
+    lineas.push(`## ${SECCIONES[clave]}`, ...lista(datos.secciones[clave], '(nada)'), '');
   }
-  lineas.push('## Migraciones de base de datos', ...lista(d.migraciones, '(ninguna)'), '');
-  lineas.push('## Verificación antes del tag', ...listaVerificacion(ctx, d.head_ref), '');
-  lineas.push('## Comandos sugeridos (los ejecutas tú, después de verificar)', ...comandosTag(ctx, d.version, d.head_ref));
+  lineas.push('## Migraciones de base de datos', ...lista(datos.migraciones, '(ninguna)'), '');
+  lineas.push('## Verificación antes del tag', ...listaVerificacion(ctx, datos.head_ref), '');
+  lineas.push('## Comandos sugeridos (los ejecutas tú, después de verificar)', ...comandosTag(ctx, datos.version, datos.head_ref));
   return lineas.join('\n');
 }
 

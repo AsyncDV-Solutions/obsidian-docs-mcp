@@ -6,10 +6,11 @@ import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
 import type { Cambio } from '../src/cambios.ts';
 import { crearSesion } from '../src/sesion.ts';
-import { codigoDe, crearEscenario, escribirNota, notaTarea } from './helpers.ts';
+import { codigoDe, crearEscenario, escribirNota, notaTarea, relojFalso } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
 const cambio: Cambio = { descripcion: 'a', operaciones: [] };
+const MINUTO = 60_000;
 
 describe('sesión', () => {
   let esc: Escenario;
@@ -46,32 +47,39 @@ describe('sesión', () => {
 
   test('cada sesión tiene su almacén de códigos y su tope: no se comparten', async () => {
     const ctx = await arrancar({ limites: { escrituras_por_minuto: 1 } });
-    const a = crearSesion(ctx);
-    const b = crearSesion(ctx);
-    const { confirmacion } = a.almacen.guardar(cambio, 5);
-    assert.throws(() => b.almacen.retirar(confirmacion), /no existe, ya se usó o venció/);
-    a.tope.contar();
-    assert.throws(() => a.tope.exigir(), /1 escrituras por minuto/);
-    b.tope.exigir();
+    const primera = crearSesion(ctx);
+    const segunda = crearSesion(ctx);
+    const { confirmacion } = primera.almacen.guardar(cambio);
+    assert.throws(() => segunda.almacen.retirar(confirmacion), { codigo: 'CONFIRMACION_INVALIDA' });
+    primera.tope.contar();
+    assert.throws(() => primera.tope.exigir(), { codigo: 'LIMITE' });
+    segunda.tope.exigir();
   });
 
-  test('el tope y la vida de los códigos salen de la configuración y del reloj de la sesión', async () => {
-    let ahora = 1_700_000_000_000;
-    const sesion = crearSesion(await arrancar({ limites: { escrituras_por_minuto: 2 } }), { reloj: () => ahora });
-    const { expira } = sesion.almacen.guardar(cambio, sesion.config.limites.confirmacion_minutos);
-    assert.equal(expira.getTime(), ahora + 5 * 60_000, 'confirmacion_minutos vale 5 por defecto');
+  test('los códigos duran lo que dice confirmacion_minutos y siguen el reloj de la sesión', async () => {
+    const reloj = relojFalso();
+    const sesion = crearSesion(await arrancar({ limites: { confirmacion_minutos: 2 } }), { reloj });
+    const { confirmacion, minutos } = sesion.almacen.guardar(cambio);
+    assert.equal(minutos, 2);
+    reloj.avanzar(2 * MINUTO - 1);
+    assert.equal(sesion.almacen.retirar(confirmacion), cambio, 'a los 2 minutos menos un milisegundo todavía sirve');
+    const otro = sesion.almacen.guardar(cambio).confirmacion;
+    reloj.avanzar(2 * MINUTO);
+    assert.throws(() => sesion.almacen.retirar(otro), { codigo: 'CONFIRMACION_INVALIDA' }, 'con el valor por defecto, 5, todavía serviría');
+  });
+
+  test('el tope sale de escrituras_por_minuto y sigue el reloj de la sesión', async () => {
+    const reloj = relojFalso();
+    const sesion = crearSesion(await arrancar({ limites: { escrituras_por_minuto: 2 } }), { reloj });
     sesion.tope.contar();
     sesion.tope.contar();
     assert.throws(() => sesion.tope.exigir(), /2 escrituras por minuto/);
-    ahora += 60_000;
+    reloj.avanzar(MINUTO);
     sesion.tope.exigir();
   });
 
-  test('sin reloj ni escritor propios usa el reloj de verdad y escribe de verdad', async () => {
-    const antes = Date.now();
+  test('sin escritor propio escribe de verdad en el vault', async () => {
     const sesion = crearSesion(await arrancar());
-    const { expira } = sesion.almacen.guardar(cambio, 5);
-    assert.ok(expira.getTime() >= antes + 5 * 60_000 && expira.getTime() <= Date.now() + 5 * 60_000);
     await mkdir(path.join(esc.proyecto, 'Tareas'));
     const ruta = path.join(esc.proyecto, 'Tareas', 'nueva.md');
     await sesion.escritor.crearExclusivo(ruta, 'hola\n');

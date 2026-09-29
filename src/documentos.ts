@@ -133,7 +133,7 @@ async function prepararActualizacionConEvidencia(
   datos: DatosActualizacionConEvidencia,
   textos: [string, string | undefined][],
 ): Promise<Preparado> {
-  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
+  const pedidoPor = quienPide(sesion.config, datos.pedido_por);
   const indice = await sesion.indice();
   const nota = notaVigente(indice, datos.id, datos.version_esperada, [t.tipo], t.nombre);
   // Afirmaciones, fuentes y evidencia son una revisión nueva: sin el SHA revisado no se sabe contra qué código valen.
@@ -276,7 +276,7 @@ export type DatosIncidencia = {
 // Una incidencia usa los mismos estados que una tarea (y tarea_cambiar_estado desde esta etapa).
 export async function prepararIncidencia(sesion: Sesion, sinLimpiar: DatosIncidencia): Promise<Preparado> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
-  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
+  const pedidoPor = quienPide(sesion.config, datos.pedido_por);
   const indice = await sesion.indice();
   return crear(sesion, indice, {
     tipo: 'incidencia',

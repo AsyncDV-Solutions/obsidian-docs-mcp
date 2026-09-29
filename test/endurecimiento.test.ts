@@ -84,11 +84,18 @@ describe('endurecimiento', () => {
     }
   });
 
-  test('aplicar.ts escribe solo por el escritor de la sesión', async () => {
-    const texto = sinComentarios(await readFile(path.join(SRC, 'aplicar.ts'), 'utf8'));
-    assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, 'aplicar.ts llama al escritor de escritura.ts directamente');
-    assert.match(texto, /sesion\.escritor\.crearExclusivo\(/);
-    assert.match(texto, /sesion\.escritor\.reemplazarAtomico\(/);
+  // El escritor de escritura.ts solo se llama por el de la sesión, y el de verdad solo lo pone la sesión: así una
+  // prueba puede poner uno de mentira. No mira iniciar.ts, que escribe con su propio open. Vigila las formas habituales.
+  test('nadie llama al escritor de escritura.ts sin pasar por la sesión, y aplicar lo usa', async () => {
+    for (const archivo of await archivosTs(SRC)) {
+      const nombre = path.relative(SRC, archivo);
+      const texto = sinComentarios(await readFile(archivo, 'utf8'));
+      if (nombre !== 'escritura.ts') assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, `${nombre} llama al escritor sin pasar por la sesión`);
+      if (nombre !== 'escritura.ts' && nombre !== 'sesion.ts') assert.doesNotMatch(texto, /\bescritorReal\b/, `${nombre} usa el escritor de verdad`);
+    }
+    const aplicarTs = sinComentarios(await readFile(path.join(SRC, 'aplicar.ts'), 'utf8'));
+    assert.match(aplicarTs, /sesion\.escritor\.crearExclusivo\(/);
+    assert.match(aplicarTs, /sesion\.escritor\.reemplazarAtomico\(/);
   });
 
   // Una fuente con commit, «repo:<ruta>@<sha>», la escribe y la lee fuentes.ts, y el patrón del SHA es suyo. La prueba

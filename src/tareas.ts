@@ -35,7 +35,7 @@ export type TareaRepetida = { repetida: Nota };
 
 export async function prepararTareaNueva(sesion: Sesion, sinLimpiar: DatosTareaNueva): Promise<Preparado | TareaRepetida> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
-  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
+  const pedidoPor = quienPide(sesion.config, datos.pedido_por);
   const indice = await sesion.indice();
   const repetida = tareaRepetida(indice, datos.titulo);
   if (repetida !== undefined) return { repetida };
@@ -85,7 +85,7 @@ export type DatosCambioEstado = {
 // Devuelve null si la tarea ya está en ese estado: repetir no cambia nada ni agrega historial.
 export async function prepararCambioEstado(sesion: Sesion, sinLimpiar: DatosCambioEstado): Promise<Preparado | null> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
-  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
+  const pedidoPor = quienPide(sesion.config, datos.pedido_por);
   const indice = await sesion.indice();
   const nota = tareaVigente(indice, datos.id, datos.version_esperada);
   const origen = String(nota.datos.status ?? '');
@@ -127,7 +127,7 @@ export type DatosActualizacion = {
 
 export async function prepararActualizacion(sesion: Sesion, sinLimpiar: DatosActualizacion): Promise<Preparado> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
-  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
+  const pedidoPor = quienPide(sesion.config, datos.pedido_por);
   const indice = await sesion.indice();
   const nota = tareaVigente(indice, datos.id, datos.version_esperada);
   // Lista cerrada: cada campo del pedido se traduce a una propiedad de la nota (null la quita).

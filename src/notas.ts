@@ -4,6 +4,7 @@ import { ErrorMcp } from './errores.ts';
 import { separarNota } from './frontmatter.ts';
 import type { Guardia, Leida } from './guardia.ts';
 import { enlace, idDeEnlace, idValido } from './ids.ts';
+import type { Sesion } from './sesion.ts';
 
 export type Nota = {
   ruta: string; // relativa a la carpeta del proyecto
@@ -94,26 +95,29 @@ export function estadoDe(nota: Nota): string {
   return String(nota.datos.status ?? nota.datos.decision_status ?? nota.datos.release_status ?? '');
 }
 
+// Lo que hace falta para leer notas: una sesión, o cualquier cosa con su guardia, su configuración y su índice.
+export type Lector = Pick<Sesion, 'guardia' | 'config' | 'indice'>;
+
 // Lee una nota del proyecto por su ruta. La guardia valida la ruta y el tamaño; el project_id evita entregar la
 // nota de otro proyecto.
-export async function leerNotaDelProyecto(guardia: Guardia, config: Config, relativa: string): Promise<Leida> {
-  const leida = await guardia.leer(relativa);
-  const { datos } = separarNota(leida.texto, config.limites.yaml_max_kb * 1024);
-  if (datos.project_id !== config.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${leida.ruta} no pertenece a este proyecto.`);
+export async function leerNotaDelProyecto(lector: Lector, relativa: string): Promise<Leida> {
+  const leida = await lector.guardia.leer(relativa);
+  const { datos } = separarNota(leida.texto, lector.config.limites.yaml_max_kb * 1024);
+  if (datos.project_id !== lector.config.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${leida.ruta} no pertenece a este proyecto.`);
   return leida;
 }
 
 // Lee una nota del proyecto por su id o por su ruta relativa: exactamente uno de los dos.
-export async function leerNota(guardia: Guardia, config: Config, referencia: { id?: string | undefined; ruta?: string | undefined }): Promise<Leida> {
+export async function leerNota(lector: Lector, referencia: { id?: string | undefined; ruta?: string | undefined }): Promise<Leida> {
   const { id, ruta } = referencia;
   if ((id === undefined) === (ruta === undefined)) throw new ErrorMcp('ARGUMENTOS', 'Indica id o ruta: uno de los dos.');
   let relativa = ruta ?? '';
   if (id !== undefined) {
-    const nota = (await indexar(guardia, config)).notas.find((n) => n.id === id);
+    const nota = (await lector.indice()).notas.find((n) => n.id === id);
     if (nota === undefined) throw new ErrorMcp('NOTA_NO_EXISTE', `No hay una nota del proyecto con id ${id}.`);
     relativa = nota.ruta;
   }
-  return leerNotaDelProyecto(guardia, config, relativa);
+  return leerNotaDelProyecto(lector, relativa);
 }
 
 // Cuántas notas hay de cada tipo. Las tareas se cuentan además por estado: «tarea · En curso».

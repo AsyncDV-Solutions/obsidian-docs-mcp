@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import fsp, { readdir, readFile, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
+import type { TestContext } from 'node:test';
 import { escribirBloque, leerBloque } from '../src/bloques.ts';
+import { ErrorMcp } from '../src/errores.ts';
 import { conBloqueo, crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
 import { versionDe } from '../src/guardia.ts';
 import { codigoDe, crearEscenario } from './helpers.ts';
@@ -49,6 +52,47 @@ describe('escritura segura', () => {
     assert.equal(await readFile(ruta, 'utf8'), 'nuevo');
     assert.deepEqual((await readdir(esc.proyecto)).filter((n) => n.endsWith('.tmp')), []);
   });
+  // escritura.ts importa rename por su nombre: se sustituye en fs/promises y se sincronizan los exports del módulo.
+  function sustituirRename(t: TestContext, impl: (origen: Parameters<typeof fsp.rename>[0], destino: Parameters<typeof fsp.rename>[1]) => Promise<void>) {
+    const simulado = t.mock.method(fsp, 'rename', impl);
+    syncBuiltinESMExports();
+    t.after(() => {
+      simulado.mock.restore();
+      syncBuiltinESMExports();
+    });
+    return simulado;
+  }
+
+  test('un rename que falla sin remedio responde ESCRITURA, sin filtrar el detalle ni dejar temporales', async (t) => {
+    await writeFile(ruta, 'uno\n', 'utf8');
+    const rename = sustituirRename(t, async () => {
+      throw Object.assign(new Error(`EXDEV en ${esc.base}`), { code: 'EXDEV' });
+    });
+    await assert.rejects(reemplazarAtomico(ruta, 'dos\n', versionDe('uno\n')), (error: unknown) => {
+      assert.ok(error instanceof ErrorMcp);
+      assert.equal(error.codigo, 'ESCRITURA');
+      assert.doesNotMatch(error.message, /EXDEV|asyncdv-mcp/, 'el detalle del sistema no sale');
+      return true;
+    });
+    assert.equal(rename.mock.callCount(), 1, 'un fallo que no es de bloqueo no se reintenta');
+    assert.equal(await readFile(ruta, 'utf8'), 'uno\n', 'la nota no cambió');
+    assert.deepEqual((await readdir(esc.proyecto)).filter((f) => f.endsWith('.tmp')), [], 'ni un temporal');
+  });
+
+  test('un rename bloqueado un momento (EBUSY) se reintenta hasta lograrlo', async (t) => {
+    await writeFile(ruta, 'uno\n', 'utf8');
+    const real = fsp.rename;
+    let intentos = 0;
+    sustituirRename(t, async (origen, destino) => {
+      intentos++;
+      if (intentos < 3) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+      return real(origen, destino);
+    });
+    await reemplazarAtomico(ruta, 'tres\n', versionDe('uno\n'));
+    assert.equal(intentos, 3);
+    assert.equal(await readFile(ruta, 'utf8'), 'tres\n');
+  });
+
 });
 
 describe('bloques gestionados', () => {

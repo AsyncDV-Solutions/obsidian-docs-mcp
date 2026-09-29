@@ -4,7 +4,7 @@ import { cargarConfig } from '../src/config.ts';
 import type { Config } from '../src/config.ts';
 import { crearGuardia } from '../src/guardia.ts';
 import { buscar, conteoDeNotas, estadoDe, filtrar, indexar, leerNota, leerNotaDelProyecto, mencionaId } from '../src/notas.ts';
-import type { Indice, Nota } from '../src/notas.ts';
+import type { Indice, Lector, Nota } from '../src/notas.ts';
 import { codigoDe, crearEscenario, escribirNota, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
@@ -12,6 +12,10 @@ describe('índice y consultas', () => {
   let esc: Escenario;
   let config: Config;
   const indice = () => indexar(crearGuardia(esc.proyecto, config.limites), config);
+  const unLector = (): Lector => {
+    const guardia = crearGuardia(esc.proyecto, config.limites);
+    return { guardia, config, indice: () => indexar(guardia, config) };
+  };
 
   beforeEach(async () => {
     esc = await crearEscenario();
@@ -79,27 +83,27 @@ describe('índice y consultas', () => {
   });
 
   test('leerNotaDelProyecto lee una nota del proyecto y rechaza la de otro proyecto o la que no dice de cuál es', async () => {
-    const g = crearGuardia(esc.proyecto, config.limites);
-    const leida = await leerNotaDelProyecto(g, config, 'Tareas/DEM-T-0001-login.md');
+    const lector = unLector();
+    const leida = await leerNotaDelProyecto(lector, 'Tareas/DEM-T-0001-login.md');
     assert.equal(leida.ruta, 'Tareas/DEM-T-0001-login.md');
     assert.match(leida.version, /^[0-9a-f]{16}$/);
     assert.match(leida.texto, /^---\nid: DEM-T-0001\n/);
-    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/ajena.md')), 'PROJECT_ID_AJENO');
-    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/sin-id.md')), 'PROJECT_ID_AJENO');
-    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/rota.md')), 'YAML_INVALIDO');
-    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/no-existe.md')), 'NOTA_NO_EXISTE');
+    assert.equal(await codigoDe(leerNotaDelProyecto(lector, 'Tareas/ajena.md')), 'PROJECT_ID_AJENO');
+    assert.equal(await codigoDe(leerNotaDelProyecto(lector, 'Tareas/sin-id.md')), 'PROJECT_ID_AJENO');
+    assert.equal(await codigoDe(leerNotaDelProyecto(lector, 'Tareas/rota.md')), 'YAML_INVALIDO');
+    assert.equal(await codigoDe(leerNotaDelProyecto(lector, 'Tareas/no-existe.md')), 'NOTA_NO_EXISTE');
   });
 
   test('leerNota lee por id o por ruta, y exige uno de los dos', async () => {
-    const g = crearGuardia(esc.proyecto, config.limites);
-    const porRuta = await leerNota(g, config, { ruta: 'Tareas/DEM-T-0002-correo.md' });
+    const lector = unLector();
+    const porRuta = await leerNota(lector, { ruta: 'Tareas/DEM-T-0002-correo.md' });
     assert.equal(porRuta.ruta, 'Tareas/DEM-T-0002-correo.md');
-    assert.deepEqual(await leerNota(g, config, { id: 'DEM-T-0002' }), porRuta, 'el id lleva a la misma nota');
-    assert.equal(await codigoDe(leerNota(g, config, {})), 'ARGUMENTOS', 'ninguno');
-    assert.equal(await codigoDe(leerNota(g, config, { id: 'DEM-T-0002', ruta: 'Tareas/DEM-T-0002-correo.md' })), 'ARGUMENTOS', 'los dos');
-    assert.equal(await codigoDe(leerNota(g, config, { id: 'DEM-T-0099' })), 'NOTA_NO_EXISTE');
-    assert.equal(await codigoDe(leerNota(g, config, { id: 'DEM-T-0003' })), 'NOTA_NO_EXISTE', 'la nota de otro proyecto no está en el índice');
-    assert.equal(await codigoDe(leerNota(g, config, { ruta: 'Tareas/ajena.md' })), 'PROJECT_ID_AJENO');
+    assert.deepEqual(await leerNota(lector, { id: 'DEM-T-0002' }), porRuta, 'el id lleva a la misma nota');
+    assert.equal(await codigoDe(leerNota(lector, {})), 'ARGUMENTOS', 'ninguno');
+    assert.equal(await codigoDe(leerNota(lector, { id: 'DEM-T-0002', ruta: 'Tareas/DEM-T-0002-correo.md' })), 'ARGUMENTOS', 'los dos');
+    assert.equal(await codigoDe(leerNota(lector, { id: 'DEM-T-0099' })), 'NOTA_NO_EXISTE');
+    assert.equal(await codigoDe(leerNota(lector, { id: 'DEM-T-0003' })), 'NOTA_NO_EXISTE', 'la nota de otro proyecto no está en el índice');
+    assert.equal(await codigoDe(leerNota(lector, { ruta: 'Tareas/ajena.md' })), 'PROJECT_ID_AJENO');
   });
 
   test('conteoDeNotas cuenta las tareas por estado y las demás notas por tipo', () => {

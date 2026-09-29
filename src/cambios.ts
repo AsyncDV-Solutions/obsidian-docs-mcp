@@ -28,7 +28,7 @@ export type Operacion =
 
 export type Cambio = { descripcion: string; operaciones: Operacion[] };
 
-export type Preparado = { confirmacion: string; expira: Date; minutos: number; vistaPrevia: string };
+export type Preparado = { confirmacion: string; minutos: number; vistaPrevia: string };
 
 // ——— Vista previa ———
 
@@ -89,9 +89,8 @@ function preparar(sesion: Sesion, descripcion: string, ops: Op[], avisos: string
   };
   const paraLeer = [...ops.filter((op) => op.tipo === 'crear'), ...ops.filter((op) => op.tipo === 'reemplazar')];
   const cuerpo = paraLeer.map((op) => (op.tipo === 'crear' ? `Crear ${op.ruta}:\n———\n${op.contenido}\n———` : `Cambios en ${op.ruta}:\n${diffLineas(op.antes, op.contenido)}`));
-  const minutos = sesion.config.limites.confirmacion_minutos;
-  const { confirmacion, expira } = sesion.almacen.guardar(cambio, minutos);
-  return { confirmacion, expira, minutos, vistaPrevia: [...avisos, ...cuerpo].join('\n') };
+  const { confirmacion, minutos } = sesion.almacen.guardar(cambio);
+  return { confirmacion, minutos, vistaPrevia: [...avisos, ...cuerpo].join('\n') };
 }
 
 function avisoEditadoAMano(nombre: string): string {
@@ -143,36 +142,36 @@ async function numerar(sesion: Sesion, indice: Indice, tipo: TipoNumerado): Prom
 
 // Prepara una nota nueva: propiedades armadas por código + cuerpo de la plantilla con sus bloques.
 // Que el archivo destino ya exista lo detecta aplicar (YA_EXISTE): acá solo se valida la carpeta.
-export async function crear(sesion: Sesion, indice: Indice, p: PedidoCrear): Promise<Preparado> {
+export async function crear(sesion: Sesion, indice: Indice, pedido: PedidoCrear): Promise<Preparado> {
   const cfg = sesion.config;
   const momento = ahora(cfg.zona_horaria);
   const ops: Op[] = [];
   let id: string;
-  if (typeof p.id === 'string') {
-    id = p.id;
+  if (typeof pedido.id === 'string') {
+    id = pedido.id;
   } else {
-    ({ id, op: ops[0] } = await numerar(sesion, indice, p.id.numerar));
+    ({ id, op: ops[0] } = await numerar(sesion, indice, pedido.id.numerar));
   }
-  const ruta = typeof p.id === 'string' ? `${p.carpeta}/${id}.md` : `${p.carpeta}/${id}-${slug(p.titulo)}.md`;
+  const ruta = typeof pedido.id === 'string' ? `${pedido.carpeta}/${id}.md` : `${pedido.carpeta}/${id}-${slug(pedido.titulo)}.md`;
   await sesion.guardia.rutaParaEscribir(ruta); // valida la carpeta ya, para avisar antes de confirmar
 
   const doc = new Document({
     id,
     project_id: cfg.project_id,
-    type: p.tipo,
+    type: pedido.tipo,
     schema: 1,
-    title: p.titulo,
-    ...p.propiedades,
+    title: pedido.titulo,
+    ...pedido.propiedades,
     created: momento.fecha,
     updated: momento.fechaHora,
   });
-  let cuerpo = rellenar(await cargarPlantilla(p.tipo, sesion.plantillas), p.valores, '\n');
+  let cuerpo = rellenar(await cargarPlantilla(pedido.tipo, sesion.plantillas), pedido.valores, '\n');
   // cargarPlantilla ya garantizó los bloques del formato vigente: solo falta alguno en un formato anterior.
-  for (const [nombre, contenido] of Object.entries(p.bloques ?? {})) {
+  for (const [nombre, contenido] of Object.entries(pedido.bloques ?? {})) {
     if (leerBloque(cuerpo, nombre) !== null) cuerpo = escribirBloque(cuerpo, nombre, contenido, '\n');
   }
-  if (p.historial !== undefined && leerBloque(cuerpo, 'historial') !== null) {
-    cuerpo = escribirBloque(cuerpo, 'historial', lineaHistorial(momento, p.historial, p.herramienta), '\n');
+  if (pedido.historial !== undefined && leerBloque(cuerpo, 'historial') !== null) {
+    cuerpo = escribirBloque(cuerpo, 'historial', lineaHistorial(momento, pedido.historial, pedido.herramienta), '\n');
   }
   ops.push({ tipo: 'crear', ruta, contenido: unirNota({ bom: false, eol: '\n', doc, cuerpo }) });
   return preparar(sesion, `crear ${id}`, ops);
@@ -191,7 +190,7 @@ export type Edicion = {
 // Prepara el reemplazo de una nota existente. Relee la nota: si ya no está en la versión del índice,
 // no prepara nada. Solo cambia propiedades, bloques gestionados, «updated», el cuerpo que pida el
 // llamador y el historial, en ese orden; todo lo demás queda igual, byte a byte.
-export async function editar(sesion: Sesion, nota: Nota, e: Edicion): Promise<Preparado> {
+export async function editar(sesion: Sesion, nota: Nota, edicion: Edicion): Promise<Preparado> {
   const cfg = sesion.config;
   const nombre = nota.id || nota.ruta;
   const leida = await sesion.guardia.leer(nota.ruta);
@@ -201,7 +200,7 @@ export async function editar(sesion: Sesion, nota: Nota, e: Edicion): Promise<Pr
   const avisos: string[] = [];
 
   // Antes de tocar nada: cada bloque pedido debe existir, y lo editado a mano se advierte (se va a pisar).
-  const bloques = Object.entries(e.bloques ?? {});
+  const bloques = Object.entries(edicion.bloques ?? {});
   for (const [b] of bloques) {
     const bloque = leerBloque(sep.cuerpo, b);
     if (bloque === null) {
@@ -210,18 +209,18 @@ export async function editar(sesion: Sesion, nota: Nota, e: Edicion): Promise<Pr
     if (bloque.editadoAMano) avisos.push(avisoEditadoAMano(b));
   }
 
-  for (const [clave, valor] of e.propiedades ?? []) {
+  for (const [clave, valor] of edicion.propiedades ?? []) {
     if (valor === null) sep.doc.delete(clave);
     else sep.doc.set(clave, valor);
   }
   sep.doc.set('updated', momento.fechaHora);
   let cuerpo = sep.cuerpo;
   for (const [b, texto] of bloques) cuerpo = escribirBloque(cuerpo, b, texto, sep.eol);
-  if (e.cuerpo !== undefined) cuerpo = e.cuerpo(cuerpo, sep.eol);
-  if (e.historial !== undefined) {
+  if (edicion.cuerpo !== undefined) cuerpo = edicion.cuerpo(cuerpo, sep.eol);
+  if (edicion.historial !== undefined) {
     const historial = leerBloque(cuerpo, 'historial');
     if (historial === null) throw new ErrorMcp('BLOQUE_FALTA', `${nombre} no tiene el bloque de historial.`);
-    const linea = lineaHistorial(momento, e.historial, e.herramienta);
+    const linea = lineaHistorial(momento, edicion.historial, edicion.herramienta);
     cuerpo = escribirBloque(cuerpo, 'historial', historial.contenido === '' ? linea : `${historial.contenido}${sep.eol}${linea}`, sep.eol);
     if (historial.editadoAMano) avisos.push('Aviso: el historial fue editado a mano; se agrega la línea igual y se renueva su huella.');
   }

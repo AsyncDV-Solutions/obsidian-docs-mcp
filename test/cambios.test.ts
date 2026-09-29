@@ -8,6 +8,7 @@ import { escribirBloque } from '../src/bloques.ts';
 import { crear, editar, regenerarBloque } from '../src/cambios.ts';
 import { crearSesion } from '../src/sesion.ts';
 import type { Sesion } from '../src/sesion.ts';
+import { conConfig } from './sesiones.ts';
 import { codigoDe, crearEscenario, escribirNota, notaContadores, notaTarea, relojFalso } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
@@ -42,7 +43,7 @@ describe('cambios preparados', () => {
       assert.match(p.vistaPrevia, /^\+ - hola$/m);
       assert.match(p.vistaPrevia, /^\+ updated: /m);
       assert.ok(p.confirmacion.length >= 16);
-      assert.ok(p.expira.getTime() > Date.now());
+      assert.equal(p.minutos, 5, "confirmacion_minutos vale 5 por defecto");
       assert.equal(await readFile(rutaDe('Tablero.md'), 'utf8'), notaConBloque(), 'preparar no escribe');
     });
 
@@ -195,8 +196,7 @@ describe('cambios preparados', () => {
   });
 
   describe('código de confirmación', () => {
-    const conTope = (tope: number, reloj: () => number): Sesion =>
-      crearSesion({ ...sesion, config: { ...sesion.config, limites: { ...sesion.config.limites, escrituras_por_minuto: tope } } }, { reloj });
+    const conTope = (tope: number, reloj: () => number): Sesion => conConfig(sesion, (c) => ({ ...c, limites: { ...c.limites, escrituras_por_minuto: tope } }), { reloj });
 
     test('sirve una sola vez', async () => {
       await escribirNota(esc.proyecto, 'Tablero.md', notaConBloque());
@@ -206,16 +206,19 @@ describe('cambios preparados', () => {
       assert.throws(() => sesion.almacen.retirar(p.confirmacion), { codigo: 'CONFIRMACION_INVALIDA' });
     });
 
-    test('vence a los minutos de la configuración, con el reloj de la sesión', async () => {
+    test('vence a los minutos de confirmacion_minutos, con el reloj de la sesión', async () => {
       await escribirNota(esc.proyecto, 'Tablero.md', notaConBloque());
+      await escribirNota(esc.proyecto, 'Otro.md', notaConBloque());
       const reloj = relojFalso();
-      const propia = crearSesion(sesion, { reloj });
-      const p = await regenerarBloque(propia, 'Tablero.md', 'tablero', '- hola');
-      assert.ok(p !== null);
-      assert.equal(p.minutos, 5);
-      assert.equal(p.expira.getTime(), reloj() + 5 * 60_000);
-      reloj.avanzar(5 * 60_000);
-      assert.equal(await codigoDe(aplicarCambio(propia, p.confirmacion)), 'CONFIRMACION_INVALIDA');
+      const propia = conConfig(sesion, (c) => ({ ...c, limites: { ...c.limites, confirmacion_minutos: 2 } }), { reloj });
+      const primero = await regenerarBloque(propia, 'Tablero.md', 'tablero', '- uno');
+      const segundo = await regenerarBloque(propia, 'Otro.md', 'tablero', '- dos');
+      assert.ok(primero !== null && segundo !== null);
+      assert.equal(primero.minutos, 2);
+      reloj.avanzar(2 * 60_000 - 1);
+      assert.deepEqual(await aplicarCambio(propia, primero.confirmacion), ['reemplazar Tablero.md'], 'un milisegundo antes todavía sirve');
+      reloj.avanzar(1);
+      assert.equal(await codigoDe(aplicarCambio(propia, segundo.confirmacion)), 'CONFIRMACION_INVALIDA', 'con los 5 minutos por defecto todavía serviría');
     });
 
     test('alcanzar el tope de escrituras por minuto no consume el código', async () => {
@@ -230,6 +233,20 @@ describe('cambios preparados', () => {
       assert.equal(await codigoDe(aplicarCambio(propia, segundo.confirmacion)), 'LIMITE');
       reloj.avanzar(60_000);
       assert.deepEqual(await aplicarCambio(propia, segundo.confirmacion), ['reemplazar Otro.md'], 'el código seguía vivo');
+    });
+
+    test('un código vencido no gasta cupo', async () => {
+      await escribirNota(esc.proyecto, 'Tablero.md', notaConBloque());
+      await escribirNota(esc.proyecto, 'Otro.md', notaConBloque());
+      const reloj = relojFalso();
+      const propia = conTope(1, reloj);
+      const vencido = await regenerarBloque(propia, 'Tablero.md', 'tablero', '- uno');
+      assert.ok(vencido !== null);
+      reloj.avanzar(5 * 60_000);
+      assert.equal(await codigoDe(aplicarCambio(propia, vencido.confirmacion)), 'CONFIRMACION_INVALIDA');
+      const vigente = await regenerarBloque(propia, 'Otro.md', 'tablero', '- dos');
+      assert.ok(vigente !== null);
+      assert.deepEqual(await aplicarCambio(propia, vigente.confirmacion), ['reemplazar Otro.md'], 'si el vencido gastara cupo, aquí saltaría LIMITE');
     });
 
     test('un código inválido no gasta cupo', async () => {

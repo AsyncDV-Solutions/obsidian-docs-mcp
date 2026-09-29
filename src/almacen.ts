@@ -11,28 +11,28 @@ export type Reloj = () => number;
 const MINUTO_MS = 60_000;
 
 export type Almacen = {
-  // Guarda un cambio preparado y entrega su código de confirmación, que vence a los minutos pedidos.
-  guardar(cambio: Cambio, minutos: number): { confirmacion: string; expira: Date };
+  // Guarda un cambio preparado y entrega su código de confirmación, con los minutos que tarda en vencer.
+  guardar(cambio: Cambio): { confirmacion: string; minutos: number };
   // Entrega el cambio de un código válido y lo borra: sirve una sola vez. CONFIRMACION_INVALIDA si no existe,
   // ya se usó o venció.
   retirar(confirmacion: string): Cambio;
 };
 
-export function crearAlmacen(reloj: Reloj): Almacen {
+// minutos: lo que dura un código (confirmacion_minutos).
+export function crearAlmacen(reloj: Reloj, minutos: number): Almacen {
   const guardados = new Map<string, { cambio: Cambio; expira: number }>();
 
   const limpiarVencidos = (instante: number): void => {
-    for (const [codigo, g] of guardados) if (g.expira <= instante) guardados.delete(codigo);
+    for (const [codigo, guardado] of guardados) if (guardado.expira <= instante) guardados.delete(codigo);
   };
 
   return {
-    guardar(cambio, minutos) {
+    guardar(cambio) {
       const instante = reloj();
       limpiarVencidos(instante);
       const confirmacion = randomBytes(16).toString('base64url'); // 128 bits aleatorios: no se puede adivinar
-      const expira = instante + minutos * MINUTO_MS;
-      guardados.set(confirmacion, { cambio, expira });
-      return { confirmacion, expira: new Date(expira) };
+      guardados.set(confirmacion, { cambio, expira: instante + minutos * MINUTO_MS });
+      return { confirmacion, minutos };
     },
     retirar(confirmacion) {
       limpiarVencidos(reloj());
