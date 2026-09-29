@@ -7,13 +7,16 @@ export type Respuesta = {
   error: boolean; // isError: un error de la herramienta o una entrada que rompe el esquema
 };
 
+export type Definicion = { name: string; annotations?: Record<string, unknown> };
+
 export type Cliente = {
   herramientas(): Promise<string[]>;
+  definiciones(): Promise<Definicion[]>;
   llamar(nombre: string, args?: Record<string, unknown>): Promise<Respuesta>;
   cerrar(): Promise<void>;
 };
 
-type Mensaje = { id?: number; result?: { tools?: { name: string }[]; content?: { text: string }[]; isError?: boolean }; error?: { message: string } };
+type Mensaje = { id?: number; result?: { tools?: Definicion[]; content?: { text: string }[]; isError?: boolean }; error?: { message: string } };
 
 const PLAZO_MS = 5000;
 
@@ -59,6 +62,10 @@ export async function servir(estado: EstadoArranque): Promise<Cliente> {
   await enviar({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
   return {
+    async definiciones() {
+      const r = await pedir('tools/list', {});
+      return r.result?.tools ?? [];
+    },
     async herramientas() {
       const r = await pedir('tools/list', {});
       return (r.result?.tools ?? []).map((h) => h.name).sort();
