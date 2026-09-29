@@ -67,6 +67,30 @@ describe('endurecimiento', () => {
     }
   });
 
+  // La sesión es lo que reciben los preparadores, aplicar y las herramientas: el guardia lo construye solo el arranque,
+  // y el almacén de códigos y el tope de escrituras, solo la sesión. Así una prueba puede crear la suya con reloj de
+  // mentira, y nadie tiene un segundo almacén con otros códigos. La prueba vigila las formas habituales.
+  test('solo arranque.ts construye el guardia y solo sesion.ts el almacén y el tope', async () => {
+    const reglas: { patron: RegExp; permitidos: string[] }[] = [
+      { patron: /\bcrearGuardia\(/, permitidos: ['arranque.ts', 'guardia.ts'] },
+      { patron: /\b(?:crearAlmacen|crearTope)\(/, permitidos: ['sesion.ts', 'almacen.ts'] },
+    ];
+    for (const archivo of await archivosTs(SRC)) {
+      const texto = sinComentarios(await readFile(archivo, 'utf8'));
+      for (const { patron, permitidos } of reglas) {
+        if (permitidos.includes(path.relative(SRC, archivo))) continue;
+        assert.doesNotMatch(texto, patron, archivo);
+      }
+    }
+  });
+
+  test('aplicar.ts escribe solo por el escritor de la sesión', async () => {
+    const texto = sinComentarios(await readFile(path.join(SRC, 'aplicar.ts'), 'utf8'));
+    assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, 'aplicar.ts llama al escritor de escritura.ts directamente');
+    assert.match(texto, /sesion\.escritor\.crearExclusivo\(/);
+    assert.match(texto, /sesion\.escritor\.reemplazarAtomico\(/);
+  });
+
   // Una fuente con commit, «repo:<ruta>@<sha>», la escribe y la lee fuentes.ts, y el patrón del SHA es suyo. La prueba
   // vigila las formas habituales de escribirla, de leerla o de validar su SHA a mano en otro archivo, con plantillas,
   // con concatenación o con startsWith; no puede demostrar que nadie interprete una fuente por otro camino. Un texto

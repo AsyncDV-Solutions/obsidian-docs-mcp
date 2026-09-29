@@ -1,7 +1,7 @@
 import type { Sesion } from './sesion.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
-import { agregarCriterio, criteriosPendientes, limpiarTextoLibre, normalizar, problemasDeTransicion } from './dominio.ts';
+import { agregarCriterio, criteriosPendientes, limpiarTextoLibre, normalizar, problemasDeTransicion, quienPide } from './dominio.ts';
 import type { Estado, Resolucion } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import { enlacesA, notaVigente } from './notas.ts';
@@ -21,7 +21,7 @@ export type DatosTareaNueva = {
   fuentes?: string[];
   estado_inicial: 'Por hacer' | 'Pendiente';
   motivo?: string;
-  pedido_por: string;
+  pedido_por?: string | undefined;
 };
 
 // Una tarea abierta con el mismo título (sin mayúsculas ni tildes) ya existe: no se duplica.
@@ -35,6 +35,7 @@ export type TareaRepetida = { repetida: Nota };
 
 export async function prepararTareaNueva(sesion: Sesion, sinLimpiar: DatosTareaNueva): Promise<Preparado | TareaRepetida> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
   const indice = await sesion.indice();
   const repetida = tareaRepetida(indice, datos.titulo);
   if (repetida !== undefined) return { repetida };
@@ -61,7 +62,7 @@ export async function prepararTareaNueva(sesion: Sesion, sinLimpiar: DatosTareaN
       descripcion: datos.descripcion,
       criterios: datos.criterios.map((c) => `- [ ] ${c}`).join('\n'),
     },
-    historial: `creada en «${datos.estado_inicial}» · pidió: ${datos.pedido_por}${datos.motivo ? ` · motivo: ${datos.motivo}` : ''}`,
+    historial: `creada en «${datos.estado_inicial}» · pidió: ${pedidoPor}${datos.motivo ? ` · motivo: ${datos.motivo}` : ''}`,
     herramienta: 'tarea_crear',
   });
 }
@@ -74,7 +75,7 @@ export type DatosCambioEstado = {
   id: string;
   estado: Estado;
   version_esperada: string;
-  pedido_por: string;
+  pedido_por?: string | undefined;
   motivo?: string;
   resolution?: Resolucion;
   blocked_by?: string[];
@@ -84,6 +85,7 @@ export type DatosCambioEstado = {
 // Devuelve null si la tarea ya está en ese estado: repetir no cambia nada ni agrega historial.
 export async function prepararCambioEstado(sesion: Sesion, sinLimpiar: DatosCambioEstado): Promise<Preparado | null> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
   const indice = await sesion.indice();
   const nota = tareaVigente(indice, datos.id, datos.version_esperada);
   const origen = String(nota.datos.status ?? '');
@@ -95,7 +97,7 @@ export async function prepararCambioEstado(sesion: Sesion, sinLimpiar: DatosCamb
   );
   if (problemas.length > 0) throw new ErrorMcp('TRANSICION', problemas.join(' '));
   const bloqueadaPor = enlacesA(sesion.config.project_dir, indice, datos.blocked_by);
-  const detalles = [`pidió: ${datos.pedido_por}`, datos.motivo ? `motivo: ${datos.motivo}` : '', datos.resolution ? `resolution: ${datos.resolution}` : '']
+  const detalles = [`pidió: ${pedidoPor}`, datos.motivo ? `motivo: ${datos.motivo}` : '', datos.resolution ? `resolution: ${datos.resolution}` : '']
     .filter((x) => x !== '')
     .join(' · ');
 
@@ -111,7 +113,7 @@ export async function prepararCambioEstado(sesion: Sesion, sinLimpiar: DatosCamb
 export type DatosActualizacion = {
   id: string;
   version_esperada: string;
-  pedido_por: string;
+  pedido_por?: string | undefined;
   prioridad?: string;
   responsable?: string | null; // null = quitar el campo
   due?: string | null;
@@ -125,6 +127,7 @@ export type DatosActualizacion = {
 
 export async function prepararActualizacion(sesion: Sesion, sinLimpiar: DatosActualizacion): Promise<Preparado> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
   const indice = await sesion.indice();
   const nota = tareaVigente(indice, datos.id, datos.version_esperada);
   // Lista cerrada: cada campo del pedido se traduce a una propiedad de la nota (null la quita).
@@ -142,7 +145,7 @@ export async function prepararActualizacion(sesion: Sesion, sinLimpiar: DatosAct
   const nombres = [...propiedades.map(([clave]) => clave), ...(criterio === undefined ? [] : ['criterio'])];
   return editar(sesion, nota, {
     herramienta: 'tarea_actualizar',
-    historial: `actualizada: ${nombres.join(', ')} · pidió: ${datos.pedido_por}`,
+    historial: `actualizada: ${nombres.join(', ')} · pidió: ${pedidoPor}`,
     propiedades,
     cuerpo: criterio === undefined ? undefined : (cuerpo, eol) => agregarCriterio(cuerpo, criterio, eol),
   });

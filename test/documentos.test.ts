@@ -51,7 +51,6 @@ describe('documentos y tablero', () => {
 
   beforeEach(async () => {
     esc = await crearEscenario();
-    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 } });
     await escribirNota(esc.proyecto, '_contadores.md', notaContadores());
     await escribirNota(esc.proyecto, 'Tablero.md', TABLERO);
     for (const carpeta of ['Tareas', 'Funcionalidades', 'Decisiones', 'Incidencias', 'Guias']) await mkdir(path.join(esc.proyecto, carpeta));
@@ -252,7 +251,7 @@ describe('documentos y tablero', () => {
     await mkdir(propias);
     const anterior = ['## Para qué sirve', '{{proposito}}', '', '## Cómo se usa', '{{pasos}}', '', '## Problemas frecuentes', '{{problemas}}', '', '## Afirmaciones', '| Afirmación | Evidencia | Fuente |', '|---|---|---|', '{{afirmaciones}}', '', '## Pendientes', '{{pendientes}}', ''];
     await writeFile(path.join(propias, 'guia.md'), anterior.join('\n'), 'utf8');
-    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 }, plantillas_dir: propias });
+    await esc.escribirConfig({ plantillas_dir: propias });
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok, 'el formato anterior de una plantilla propia se acepta');
     sesion = crearSesion(estado.ctx);
@@ -342,6 +341,27 @@ describe('documentos y tablero', () => {
       ],
     ];
     for (const [herramienta, preparar] of casos) assert.equal(await codigoDe(preparar()), 'CAMPO_INVALIDO', herramienta);
+  });
+
+  test('sin pedido_por, la incidencia y las dos actualizaciones con evidencia usan el usuario configurado', async () => {
+    const conUsuario: Sesion = { ...sesion, config: { ...sesion.config, usuario: 'Beatriz' } };
+    const funcionalidadCreada = await crearFuncionalidad();
+    await aplicarCambio(sesion, (await prepararGuia(sesion, GUIA)).confirmacion);
+    const guia = (await indice()).notas.find((n) => n.tipo === 'guia') ?? assert.fail('falta la guía');
+    const incidencia = await prepararIncidencia(conUsuario, {
+      titulo: 'Falla',
+      sintoma: 's',
+      impacto: 'i',
+      severity: 'alta',
+      environment: 'produccion',
+      detected: '2026-09-29',
+      prioridad: 'P1',
+      fuentes: ['repo:x.ts@abc1234'],
+    });
+    const deFuncionalidad = await prepararActualizacionFuncionalidad(conUsuario, { id: funcionalidadCreada.id, version_esperada: funcionalidadCreada.version, que_hace: 'Nuevo.' });
+    const deGuia = await prepararActualizacionGuia(conUsuario, { id: guia.id, version_esperada: guia.version, pasos: 'x' });
+    for (const p of [incidencia, deFuncionalidad, deGuia]) assert.match(p.vistaPrevia, /pidió: Beatriz/);
+    assert.equal(await codigoDe(prepararActualizacionGuia(sesion, { id: guia.id, version_esperada: guia.version, pasos: 'x' })), 'FALTA_PEDIDO_POR', 'sin usuario configurado');
   });
 
   test('el tablero agrupa por estado, bloqueos, release y urgentes', async () => {

@@ -24,7 +24,6 @@ describe('servidor MCP, por sus herramientas', () => {
 
   beforeEach(async () => {
     esc = await crearEscenario();
-    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 } }); // estas pruebas aplican seguido
     await escribirNota(esc.proyecto, '_contadores.md', notaContadores());
     await mkdir(carpetaTareas());
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
@@ -99,6 +98,13 @@ describe('servidor MCP, por sus herramientas', () => {
     const r = await cliente.llamar('tarea_crear', sinPedido);
     assert.equal(r.error, true);
     assert.match(r.texto, /^\[FALTA_PEDIDO_POR\] /);
+  });
+
+  test('con el texto inválido y sin pedido_por se rechaza primero el texto', async () => {
+    const { pedido_por: _quitado, ...sinPedido } = TAREA;
+    const r = await cliente.llamar('tarea_crear', { ...sinPedido, criterios: ['mal %% asyncdv:fin %%'] });
+    assert.equal(r.error, true);
+    assert.match(r.texto, /^\[CAMPO_INVALIDO\] /);
   });
 
   // Lo que el esquema rechaza llega con el texto de zod y sin código estable: por eso la regla de texto

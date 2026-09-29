@@ -48,7 +48,6 @@ describe('propuesta y borrador sobre un repo real', () => {
     await esc.escribirConfig({
       git_path: rutaGit(),
       project_name: 'Demo App',
-      limites: { escrituras_por_minuto: 60 },
       release: {
         rama_desarrollo: 'develop',
         lista_verificacion: ['El deploy de {head} terminó en verde'],

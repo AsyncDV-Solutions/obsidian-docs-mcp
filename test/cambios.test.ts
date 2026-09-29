@@ -23,7 +23,6 @@ describe('cambios preparados', () => {
 
   beforeEach(async () => {
     esc = await crearEscenario();
-    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 } }); // estas pruebas toman códigos seguido
     await escribirNota(esc.proyecto, '_contadores.md', notaContadores());
     await mkdir(path.join(esc.proyecto, 'Tareas'));
     const estado = await validarArranque(['--config', esc.rutaConfig], {});

@@ -13,7 +13,7 @@ import { ok } from '../errores.ts';
 import { fuenteRepo, PATRON_SHA } from '../fuentes.ts';
 import { patronId } from '../ids.ts';
 import { prepararTablero } from '../tablero.ts';
-import { conPedidoPor, ejecutar, FECHA, ID, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { ejecutar, FECHA, ID, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno, Vocabulario } from './comun.ts';
 
 const FUENTE = z.string().min(3).max(300).regex(UNA_LINEA).describe(`tipo:valor[@sha], p. ej. ${fuenteRepo('src/pedidos/crear.ts', '3e22c9c')}`);
@@ -89,7 +89,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('funcionalidad_actualizar', async () => {
         const sesion = entorno.exigir();
-        return respuestaPreparada(await prepararActualizacionFuncionalidad(sesion, conPedidoPor(sesion, args)));
+        return respuestaPreparada(await prepararActualizacionFuncionalidad(sesion, args));
       }),
   );
 
@@ -138,7 +138,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('guia_actualizar', async () => {
         const sesion = entorno.exigir();
-        return respuestaPreparada(await prepararActualizacionGuia(sesion, conPedidoPor(sesion, args)));
+        return respuestaPreparada(await prepararActualizacionGuia(sesion, args));
       }),
   );
 
@@ -192,7 +192,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('incidencia_crear', async () => {
         const sesion = entorno.exigir();
-        return respuestaPreparada(await prepararIncidencia(sesion, conPedidoPor(sesion, args)));
+        return respuestaPreparada(await prepararIncidencia(sesion, args));
       }),
   );
 

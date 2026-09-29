@@ -6,7 +6,7 @@ import { ok } from '../errores.ts';
 import { fuenteRepo } from '../fuentes.ts';
 import { estadoDe } from '../notas.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../tareas.ts';
-import { conPedidoPor, ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 export function registrarTareas(server: McpServer, entorno: Entorno): void {
@@ -37,7 +37,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_crear', async () => {
         const sesion = entorno.exigir();
-        const preparado = await prepararTareaNueva(sesion, conPedidoPor(sesion, args));
+        const preparado = await prepararTareaNueva(sesion, args);
         if ('repetida' in preparado) {
           const { id, ruta } = preparado.repetida;
           return ok(`Ya existe ${id} (${estadoDe(preparado.repetida)}) con ese título: ${ruta}. No se preparó nada.`);
@@ -66,7 +66,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_cambiar_estado', async () => {
         const sesion = entorno.exigir();
-        const preparado = await prepararCambioEstado(sesion, conPedidoPor(sesion, args));
+        const preparado = await prepararCambioEstado(sesion, args);
         if (preparado === null) return ok(`${args.id} ya está en «${args.estado}»: no hay nada que cambiar.`);
         return respuestaPreparada(preparado);
       }),
@@ -96,7 +96,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_actualizar', async () => {
         const sesion = entorno.exigir();
-        return respuestaPreparada(await prepararActualizacion(sesion, conPedidoPor(sesion, args)));
+        return respuestaPreparada(await prepararActualizacion(sesion, args));
       }),
   );
 

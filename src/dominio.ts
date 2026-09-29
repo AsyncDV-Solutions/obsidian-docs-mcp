@@ -26,6 +26,16 @@ export function normalizar(texto: string): string {
 // podría cerrar un bloque antes de tiempo o abrir otro. Devuelve una copia con las cadenas recortadas
 // y nombra el campo en el error (p. ej. «secciones.corregido[1]»). Recorre arreglos y objetos planos;
 // todo lo demás (números, fechas, null) lo devuelve tal cual.
+// Quién pidió el cambio: el que indicó el modelo o, si no indicó ninguno, el usuario configurado. Va después de
+// limpiarTextoLibre, así el texto inválido se rechaza antes que la falta de pedido_por.
+export function quienPide(usuario: string | undefined, valor: string | undefined): string {
+  const quien = valor ?? usuario;
+  if (quien === undefined) {
+    throw new ErrorMcp('FALTA_PEDIDO_POR', 'Indica pedido_por (quién pidió el cambio) o configura «usuario» / ASYNCDV_DOCS_USUARIO.');
+  }
+  return quien;
+}
+
 export function limpiarTextoLibre<T>(valor: T, maxKb: number, campo = ''): T {
   if (typeof valor === 'string') {
     if (Buffer.byteLength(valor, 'utf8') > maxKb * 1024) {

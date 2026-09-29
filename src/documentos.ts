@@ -2,7 +2,7 @@ import type { Contexto } from './arranque.ts';
 import type { Sesion } from './sesion.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
-import { ahora, limpiarTextoLibre } from './dominio.ts';
+import { ahora, limpiarTextoLibre, quienPide } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import { enlacesA, notaVigente } from './notas.ts';
 import type { Indice } from './notas.ts';
@@ -90,7 +90,7 @@ export async function prepararFuncionalidad(sesion: Sesion, sinLimpiar: DatosFun
 type DatosActualizacionConEvidencia = {
   id: string;
   version_esperada: string;
-  pedido_por: string;
+  pedido_por?: string | undefined;
   motivo?: string;
   titulo?: string;
   afirmaciones?: Afirmacion[];
@@ -133,6 +133,7 @@ async function prepararActualizacionConEvidencia(
   datos: DatosActualizacionConEvidencia,
   textos: [string, string | undefined][],
 ): Promise<Preparado> {
+  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
   const indice = await sesion.indice();
   const nota = notaVigente(indice, datos.id, datos.version_esperada, [t.tipo], t.nombre);
   // Afirmaciones, fuentes y evidencia son una revisión nueva: sin el SHA revisado no se sabe contra qué código valen.
@@ -157,7 +158,7 @@ async function prepararActualizacionConEvidencia(
 
   const nombres = [...propiedades.map(([clave]) => clave), ...Object.keys(bloques)];
   if (nombres.length === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
-  const detalles = [`pidió: ${datos.pedido_por}`, datos.motivo ? `motivo: ${datos.motivo}` : ''].filter((x) => x !== '').join(' · ');
+  const detalles = [`pidió: ${pedidoPor}`, datos.motivo ? `motivo: ${datos.motivo}` : ''].filter((x) => x !== '').join(' · ');
   return editar(sesion, nota, { herramienta: t.herramienta, historial: `actualizada: ${nombres.join(', ')} · ${detalles}`, propiedades, bloques });
 }
 
@@ -269,12 +270,13 @@ export type DatosIncidencia = {
   release?: string;
   fuentes: string[];
   relacionadas?: string[];
-  pedido_por: string;
+  pedido_por?: string | undefined;
 };
 
 // Una incidencia usa los mismos estados que una tarea (y tarea_cambiar_estado desde esta etapa).
 export async function prepararIncidencia(sesion: Sesion, sinLimpiar: DatosIncidencia): Promise<Preparado> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  const pedidoPor = quienPide(sesion.config.usuario, datos.pedido_por);
   const indice = await sesion.indice();
   return crear(sesion, indice, {
     tipo: 'incidencia',
@@ -293,7 +295,7 @@ export async function prepararIncidencia(sesion: Sesion, sinLimpiar: DatosIncide
       related: enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
     },
     valores: { sintoma: datos.sintoma, impacto: datos.impacto, causa: datos.causa ?? 'Pendiente de validar.' },
-    historial: `creada en «Por hacer» · pidió: ${datos.pedido_por}`,
+    historial: `creada en «Por hacer» · pidió: ${pedidoPor}`,
     herramienta: 'incidencia_crear',
   });
 }

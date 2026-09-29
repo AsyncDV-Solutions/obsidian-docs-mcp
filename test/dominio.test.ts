@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { agregarCriterio, ahora, criteriosPendientes, limpiarTextoLibre, problemasDeTransicion, slug } from '../src/dominio.ts';
+import { agregarCriterio, ahora, criteriosPendientes, limpiarTextoLibre, problemasDeTransicion, quienPide, slug } from '../src/dominio.ts';
 import type { PedidoTransicion } from '../src/dominio.ts';
 
 describe('dominio', () => {
@@ -14,6 +14,13 @@ describe('dominio', () => {
   test('ahora respeta el desfase de Santiago', () => {
     assert.equal(ahora('America/Santiago', new Date('2026-09-27T21:52:00Z')).legible, '2026-09-27 18:52 (-03:00)');
     assert.equal(ahora('America/Santiago', new Date('2026-07-01T16:00:00Z')).legible, '2026-07-01 12:00 (-04:00)');
+  });
+
+  test('quienPide: el explícito gana; sin él, el usuario configurado; sin ninguno, error', () => {
+    assert.equal(quienPide('Ana', 'Luis'), 'Luis');
+    assert.equal(quienPide('Ana', undefined), 'Ana');
+    assert.equal(quienPide(undefined, 'Luis'), 'Luis');
+    assert.throws(() => quienPide(undefined, undefined), { codigo: 'FALTA_PEDIDO_POR' });
   });
 
   test('reglas de transición', () => {

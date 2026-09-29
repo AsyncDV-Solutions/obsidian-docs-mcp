@@ -36,7 +36,6 @@ describe('tareas de punta a punta', () => {
 
   beforeEach(async () => {
     esc = await crearEscenario();
-    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 } }); // estas pruebas escriben seguido
     await escribirNota(esc.proyecto, '_contadores.md', notaContadores());
     await mkdir(path.join(esc.proyecto, 'Tareas'));
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
@@ -94,6 +93,26 @@ describe('tareas de punta a punta', () => {
     assert.match(await readFile(ruta, 'utf8'), /- \[ \] Flag apagado\n/);
     const t3 = await tarea('DEM-T-0001');
     assert.equal(await codigoDe(prepararActualizacion(sesion, { id: t3.id, version_esperada: t3.version, pedido_por: 'Ana', criterio_nuevo: '%% asyncdv:fin %%' })), 'CAMPO_INVALIDO');
+  });
+
+  test('sin pedido_por se usa el usuario configurado; sin ninguno, FALTA_PEDIDO_POR, pero después de validar el texto', async () => {
+    const { pedido_por: _quitado, ...sinPedido } = BASE;
+    const conUsuario: Sesion = { ...sesion, config: { ...sesion.config, usuario: 'Beatriz' } };
+    const nueva = await prepararTareaNueva(conUsuario, sinPedido);
+    assert.ok('confirmacion' in nueva);
+    assert.match(nueva.vistaPrevia, /creada en «Por hacer» · pidió: Beatriz/);
+    await aplicarCambio(sesion, nueva.confirmacion);
+    const t = await tarea('DEM-T-0001');
+    const estado = await prepararCambioEstado(conUsuario, { id: t.id, version_esperada: t.version, estado: 'En curso' });
+    assert.match((estado ?? assert.fail('debería haber un cambio')).vistaPrevia, /Por hacer → En curso · pidió: Beatriz · tarea_cambiar_estado/);
+    const criterio = await prepararActualizacion(conUsuario, { id: t.id, version_esperada: t.version, criterio_nuevo: 'Otro criterio' });
+    assert.match(criterio.vistaPrevia, /actualizada: criterio · pidió: Beatriz/);
+    const explicito = await prepararActualizacion(conUsuario, { id: t.id, version_esperada: t.version, pedido_por: 'Ana', criterio_nuevo: 'Otro criterio' });
+    assert.match(explicito.vistaPrevia, /actualizada: criterio · pidió: Ana/);
+    assert.doesNotMatch(explicito.vistaPrevia, /actualizada: criterio · pidió: Beatriz/, 'el explícito gana');
+
+    assert.equal(await codigoDe(prepararTareaNueva(sesion, sinPedido)), 'FALTA_PEDIDO_POR');
+    assert.equal(await codigoDe(prepararTareaNueva(sesion, { ...sinPedido, descripcion: 'x %% asyncdv:fin %%' })), 'CAMPO_INVALIDO', 'primero el texto y después quién lo pide');
   });
 
   test('un código de confirmación sirve una sola vez', async () => {

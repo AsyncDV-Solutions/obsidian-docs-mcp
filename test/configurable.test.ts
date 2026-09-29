@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import { cargarConfig } from '../src/config.ts';
-import { quienPide } from '../src/herramientas/comun.ts';
 import { buscarGit, iniciarProyecto } from '../src/iniciar.ts';
 import { prepararTareaNueva } from '../src/tareas.ts';
 import { crearSesion } from '../src/sesion.ts';
@@ -93,22 +92,10 @@ describe('carpetas y usuario configurables', () => {
     assert.ok(estado.ok);
     const sesion = crearSesion(estado.ctx);
     const datos = { titulo: 'Probar carpetas', descripcion: 'x', criterios: ['y'], prioridad: 'P2', estado_inicial: 'Por hacer' as const };
-    const p = await prepararTareaNueva(sesion, { ...datos, pedido_por: quienPide(sesion, undefined) });
+    const p = await prepararTareaNueva(sesion, datos);
     assert.ok('confirmacion' in p, 'una tarea nueva no puede salir repetida');
     await aplicarCambio(sesion, p.confirmacion);
     const texto = await readFile(path.join(sesion.proyecto, 'Trabajo', 'Pendientes', 'DEM-T-0001-probar-carpetas.md'), 'utf8');
     assert.match(texto, /pidió: Ana/);
-  });
-
-  test('pedido_por: el explícito gana; sin él, el usuario configurado; sin ninguno, error', async () => {
-    await esc.escribirConfig({ usuario: 'Ana' });
-    const conUsuario = await validarArranque(['--config', esc.rutaConfig], {});
-    assert.ok(conUsuario.ok);
-    assert.equal(quienPide(conUsuario.ctx, 'Luis'), 'Luis');
-    assert.equal(quienPide(conUsuario.ctx, undefined), 'Ana');
-    await esc.escribirConfig();
-    const sinUsuario = await validarArranque(['--config', esc.rutaConfig], {});
-    assert.ok(sinUsuario.ok);
-    assert.throws(() => quienPide(sinUsuario.ctx, undefined), { codigo: 'FALTA_PEDIDO_POR' });
   });
 });
