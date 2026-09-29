@@ -1,7 +1,7 @@
 import type { Contexto } from './arranque.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
-import { agregarCriterio, criteriosPendientes, normalizar, problemasDeTransicion } from './dominio.ts';
+import { agregarCriterio, criteriosPendientes, limpiarTextoLibre, normalizar, problemasDeTransicion } from './dominio.ts';
 import type { Estado, Resolucion } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
@@ -26,12 +26,18 @@ export type DatosTareaNueva = {
 };
 
 // Una tarea abierta con el mismo título (sin mayúsculas ni tildes) ya existe: no se duplica.
-export function tareaRepetida(indice: Indice, titulo: string): Nota | undefined {
+function tareaRepetida(indice: Indice, titulo: string): Nota | undefined {
   const buscado = normalizar(titulo);
   return indice.notas.find((n) => n.tipo === 'tarea' && n.datos.status !== 'Completado' && normalizar(n.titulo) === buscado);
 }
 
-export async function prepararTareaNueva(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosTareaNueva): Promise<Preparado> {
+// En lugar de un cambio preparado, devuelve la tarea abierta que ya tiene ese título.
+export type TareaRepetida = { repetida: Nota };
+
+export async function prepararTareaNueva(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosTareaNueva): Promise<Preparado | TareaRepetida> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
+  const repetida = tareaRepetida(indice, d.titulo);
+  if (repetida !== undefined) return { repetida };
   if (d.estado_inicial === 'Pendiente' && (d.motivo?.trim() ?? '') === '') {
     throw new ErrorMcp('TRANSICION', '«Pendiente» exige un motivo que diga qué evento o condición se espera.');
   }
@@ -76,7 +82,8 @@ export type DatosCambioEstado = {
 };
 
 // Devuelve null si la tarea ya está en ese estado: repetir no cambia nada ni agrega historial.
-export async function prepararCambioEstado(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosCambioEstado): Promise<Preparado | null> {
+export async function prepararCambioEstado(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosCambioEstado): Promise<Preparado | null> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   const nota = tareaVigente(indice, d.id, d.version_esperada);
   const origen = String(nota.datos.status ?? '');
   if (origen === d.estado) return null;
@@ -115,7 +122,8 @@ export type DatosActualizacion = {
   criterio_nuevo?: string;
 };
 
-export async function prepararActualizacion(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosActualizacion): Promise<Preparado> {
+export async function prepararActualizacion(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosActualizacion): Promise<Preparado> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   const nota = tareaVigente(indice, d.id, d.version_esperada);
   // Lista cerrada: cada campo del pedido se traduce a una propiedad de la nota (null la quita).
   const propiedades: [string, unknown][] = [];

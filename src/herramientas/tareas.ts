@@ -6,8 +6,8 @@ import { ESTADOS, PRIORIDADES, RESOLUCIONES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import type { Resultado } from '../errores.ts';
 import { indexar } from '../notas.ts';
-import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva, tareaRepetida } from '../tareas.ts';
-import { ejecutar, quienPide, textoLibre } from './comun.ts';
+import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../tareas.ts';
+import { ejecutar, quienPide } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 // Las herramientas que PREPARAN no cambian nada del entorno: solo dejan un cambio pendiente.
@@ -68,21 +68,12 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_crear', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const datos = {
-          ...args,
-          titulo: textoLibre(args.titulo, 'titulo', max),
-          descripcion: textoLibre(args.descripcion, 'descripcion', max),
-          criterios: args.criterios.map((c) => textoLibre(c, 'criterios', max)),
-          motivo: args.motivo === undefined ? undefined : textoLibre(args.motivo, 'motivo', max),
-          pedido_por: quienPide(ctx, args.pedido_por),
-        };
-        const indice = await indexar(guardia, ctx.config);
-        const repetida = tareaRepetida(indice, datos.titulo);
-        if (repetida !== undefined) {
-          return ok(`Ya existe ${repetida.id} (${String(repetida.datos.status)}) con ese título: ${repetida.ruta}. No se preparó nada.`);
+        const preparado = await prepararTareaNueva(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) });
+        if ('repetida' in preparado) {
+          const { id, datos, ruta } = preparado.repetida;
+          return ok(`Ya existe ${id} (${String(datos.status)}) con ese título: ${ruta}. No se preparó nada.`);
         }
-        return respuestaPreparada(await prepararTareaNueva(ctx, guardia, indice, datos));
+        return respuestaPreparada(preparado);
       }),
   );
 
@@ -106,10 +97,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_cambiar_estado', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const pedido_por = quienPide(ctx, args.pedido_por);
-        if (args.motivo !== undefined) textoLibre(args.motivo, 'motivo', max);
-        const preparado = await prepararCambioEstado(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por });
+        const preparado = await prepararCambioEstado(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) });
         if (preparado === null) return ok(`${args.id} ya está en «${args.estado}»: no hay nada que cambiar.`);
         return respuestaPreparada(preparado);
       }),
@@ -139,10 +127,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('tarea_actualizar', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const pedido_por = quienPide(ctx, args.pedido_por);
-        if (args.criterio_nuevo !== undefined) textoLibre(args.criterio_nuevo, 'criterio_nuevo', max);
-        return respuestaPreparada(await prepararActualizacion(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por }));
+        return respuestaPreparada(await prepararActualizacion(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) }));
       }),
   );
 

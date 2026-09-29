@@ -13,7 +13,7 @@ import { EVIDENCIAS, PRIORIDADES, SEVERIDADES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { prepararTablero } from '../tablero.ts';
-import { ejecutar, quienPide, textoLibre } from './comun.ts';
+import { ejecutar, quienPide } from './comun.ts';
 import type { Entorno, Vocabulario } from './comun.ts';
 import { FECHA, ID, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './tareas.ts';
 
@@ -27,14 +27,6 @@ const AFIRMACIONES = z
   .array(z.object({ afirmacion: z.string().min(1).max(500).regex(UNA_LINEA), evidencia: z.enum(EVIDENCIAS), fuente: z.string().max(300).regex(UNA_LINEA) }))
   .min(1)
   .max(40);
-
-function afirmacionesLibres(afirmaciones: z.infer<typeof AFIRMACIONES>, max: number): z.infer<typeof AFIRMACIONES> {
-  return afirmaciones.map((a) => ({ ...a, afirmacion: textoLibre(a.afirmacion, 'afirmacion', max), fuente: textoLibre(a.fuente, 'fuente', max) }));
-}
-
-function opcionalLibre(valor: string | undefined, campo: string, max: number): string | undefined {
-  return valor === undefined ? undefined : textoLibre(valor, campo, max);
-}
 
 const DESCRIPCION_ACTUALIZAR =
   'afirmaciones (reemplaza la tabla entera), evidence, reviewed_commit, fuentes (reemplaza la lista), área, relacionadas o pendientes. La key no cambia. Cambiar afirmaciones, fuentes o evidence exige reviewed_commit. Lee antes la nota con nota_leer: su versión va en version_esperada.';
@@ -53,20 +45,6 @@ function camposActualizacion(v: Vocabulario) {
     area: z.array(z.enum(v.areas)).max(5).optional(),
     relacionadas: z.array(ID).max(20).optional(),
     pendientes: z.array(ID).max(20).optional(),
-  };
-}
-
-type ComunesActualizacion = { pedido_por?: string; motivo?: string; titulo?: string; afirmaciones?: z.infer<typeof AFIRMACIONES> };
-
-// Limpia los textos comunes de *_actualizar y resuelve pedido_por.
-function comunesLibres<T extends ComunesActualizacion>(ctx: Contexto, args: T): T & { pedido_por: string } {
-  const max = ctx.config.limites.campo_max_kb;
-  return {
-    ...args,
-    pedido_por: quienPide(ctx, args.pedido_por),
-    motivo: opcionalLibre(args.motivo, 'motivo', max),
-    titulo: opcionalLibre(args.titulo, 'titulo', max),
-    afirmaciones: args.afirmaciones === undefined ? undefined : afirmacionesLibres(args.afirmaciones, max),
   };
 }
 
@@ -93,13 +71,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('funcionalidad_crear', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const datos = {
-          ...args,
-          que_hace: textoLibre(args.que_hace, 'que_hace', max),
-          afirmaciones: afirmacionesLibres(args.afirmaciones, max),
-        };
-        return respuestaPreparada(await prepararFuncionalidad(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararFuncionalidad(ctx, guardia, await indexar(guardia, ctx.config), args));
       }),
   );
 
@@ -118,8 +90,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('funcionalidad_actualizar', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const datos = { ...comunesLibres(ctx, args), que_hace: opcionalLibre(args.que_hace, 'que_hace', ctx.config.limites.campo_max_kb) };
-        return respuestaPreparada(await prepararActualizacionFuncionalidad(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararActualizacionFuncionalidad(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) }));
       }),
   );
 
@@ -147,15 +118,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('guia_crear', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const datos = {
-          ...args,
-          proposito: textoLibre(args.proposito, 'proposito', max),
-          pasos: textoLibre(args.pasos, 'pasos', max),
-          problemas: args.problemas === undefined ? undefined : textoLibre(args.problemas, 'problemas', max),
-          afirmaciones: afirmacionesLibres(args.afirmaciones, max),
-        };
-        return respuestaPreparada(await prepararGuia(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararGuia(ctx, guardia, await indexar(guardia, ctx.config), args));
       }),
   );
 
@@ -176,14 +139,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('guia_actualizar', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const datos = {
-          ...comunesLibres(ctx, args),
-          proposito: opcionalLibre(args.proposito, 'proposito', max),
-          pasos: opcionalLibre(args.pasos, 'pasos', max),
-          problemas: opcionalLibre(args.problemas, 'problemas', max),
-        };
-        return respuestaPreparada(await prepararActualizacionGuia(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararActualizacionGuia(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) }));
       }),
   );
 
@@ -209,15 +165,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('adr_crear', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const datos = {
-          ...args,
-          contexto: textoLibre(args.contexto, 'contexto', max),
-          decision: textoLibre(args.decision, 'decision', max),
-          alternativas: textoLibre(args.alternativas, 'alternativas', max),
-          consecuencias: textoLibre(args.consecuencias, 'consecuencias', max),
-        };
-        return respuestaPreparada(await prepararAdr(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararAdr(ctx, guardia, await indexar(guardia, ctx.config), args));
       }),
   );
 
@@ -245,15 +193,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('incidencia_crear', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const datos = {
-          ...args,
-          sintoma: textoLibre(args.sintoma, 'sintoma', max),
-          impacto: textoLibre(args.impacto, 'impacto', max),
-          causa: args.causa === undefined ? undefined : textoLibre(args.causa, 'causa', max),
-          pedido_por: quienPide(ctx, args.pedido_por),
-        };
-        return respuestaPreparada(await prepararIncidencia(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararIncidencia(ctx, guardia, await indexar(guardia, ctx.config), { ...args, pedido_por: quienPide(ctx, args.pedido_por) }));
       }),
   );
 

@@ -143,6 +143,27 @@ describe('propuesta y borrador sobre un repo real', () => {
     assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), publicada)), 'TAG_NO_VERIFICADO');
   });
 
+  test('el texto libre del borrador se limpia al entrar: un marcador de bloque se rechaza y nombra el campo', async () => {
+    const g = crearGuardia(ctx.proyecto, ctx.config.limites);
+    const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();
+    const datos: DatosRelease = {
+      version: '1.0.0',
+      titulo: 'Demo App v1.0.0',
+      resumen: 'Primera versión.',
+      secciones: { corregido: ['bien', 'mal %% asyncdv:fin %%'] },
+      migraciones: [],
+      bump: 'linea-base',
+      base_ref: 'ninguno',
+      head_ref: head,
+      release_status: 'Borrador',
+      fuentes: [],
+    };
+    await assert.rejects(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), datos), {
+      codigo: 'CAMPO_INVALIDO',
+      message: '«secciones.corregido[1]» no puede contener marcadores «%% asyncdv:».',
+    });
+  });
+
   test('actualizar el borrador cambia propiedades y bloque, conserva lo escrito fuera y exige la versión leída', async () => {
     const g = crearGuardia(ctx.proyecto, ctx.config.limites);
     const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();

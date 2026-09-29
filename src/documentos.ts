@@ -1,7 +1,7 @@
 import type { Contexto } from './arranque.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
-import { ahora } from './dominio.ts';
+import { ahora, limpiarTextoLibre } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
 import { enlacesA, notaVigente } from './notas.ts';
@@ -55,7 +55,8 @@ function envolver(texto: string): string {
   return `\n${texto}\n`;
 }
 
-export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosFuncionalidad): Promise<Preparado> {
+export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosFuncionalidad): Promise<Preparado> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   exigirKeyLibre(indice, d.key);
   return crear(ctx, guardia, indice, {
     tipo: 'funcionalidad',
@@ -105,12 +106,14 @@ export type DatosActualizacionGuia = DatosActualizacionConEvidencia & { proposit
 
 type TipoConEvidencia = { tipo: 'funcionalidad' | 'guia'; nombre: string; herramienta: string };
 
-export function prepararActualizacionFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosActualizacionFuncionalidad): Promise<Preparado> {
+export async function prepararActualizacionFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosActualizacionFuncionalidad): Promise<Preparado> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   const tipo = { tipo: 'funcionalidad', nombre: 'la funcionalidad', herramienta: 'funcionalidad_actualizar' } as const;
   return prepararActualizacionConEvidencia(ctx, guardia, indice, tipo, d, [['que_hace', d.que_hace]]);
 }
 
-export function prepararActualizacionGuia(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosActualizacionGuia): Promise<Preparado> {
+export async function prepararActualizacionGuia(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosActualizacionGuia): Promise<Preparado> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   const tipo = { tipo: 'guia', nombre: 'la guía', herramienta: 'guia_actualizar' } as const;
   return prepararActualizacionConEvidencia(ctx, guardia, indice, tipo, d, [
     ['proposito', d.proposito],
@@ -182,7 +185,8 @@ function textoProblemas(problemas: string | undefined): string {
 // Una guía explica CÓMO usar algo que ya existe (un flujo, un agente, el sistema completo).
 // Lleva la misma evidencia que una funcionalidad, así que notas_desactualizadas también la revisa.
 // Desde la 2.1.0 su contenido va en bloques gestionados (guia_actualizar los reescribe).
-export async function prepararGuia(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosGuia): Promise<Preparado> {
+export async function prepararGuia(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosGuia): Promise<Preparado> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   exigirKeyLibre(indice, d.key);
   const problemas = textoProblemas(d.problemas);
   const pendientes = listaPendientes(ctx, indice, d.pendientes);
@@ -229,7 +233,8 @@ export type DatosAdr = {
 };
 
 // Una decisión nace «Propuesta». Pasarla a «Aceptada» (con decided) lo haces tú en Obsidian.
-export async function prepararAdr(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosAdr): Promise<Preparado> {
+export async function prepararAdr(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosAdr): Promise<Preparado> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   return crear(ctx, guardia, indice, {
     tipo: 'decision',
     id: { numerar: 'decision' },
@@ -266,7 +271,8 @@ export type DatosIncidencia = {
 };
 
 // Una incidencia usa los mismos estados que una tarea (y tarea_cambiar_estado desde esta etapa).
-export async function prepararIncidencia(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosIncidencia): Promise<Preparado> {
+export async function prepararIncidencia(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosIncidencia): Promise<Preparado> {
+  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
   return crear(ctx, guardia, indice, {
     tipo: 'incidencia',
     id: { numerar: 'incidencia' },

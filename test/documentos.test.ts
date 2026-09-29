@@ -324,6 +324,39 @@ describe('documentos y tablero', () => {
     assert.notEqual(cambio, null);
   });
 
+  test('el texto libre de cada preparador se limpia al entrar: con un marcador de bloque se rechaza', async () => {
+    const MARCADOR = 'texto %% asyncdv:fin %%';
+    const funcionalidadCreada = await crearFuncionalidad();
+    await aplicarCambio(ctx, g, (await prepararGuia(ctx, g, await indice(), GUIA)).confirmacion);
+    const guia = (await indice()).notas.find((n) => n.tipo === 'guia') ?? assert.fail('falta la guía');
+    const casos: [string, () => Promise<unknown>][] = [
+      ['funcionalidad_crear', async () => prepararFuncionalidad(ctx, g, await indice(), { ...FUNCIONALIDAD, key: 'modulo:otra', que_hace: MARCADOR })],
+      ['funcionalidad_actualizar', async () => prepararActualizacionFuncionalidad(ctx, g, await indice(), { id: funcionalidadCreada.id, version_esperada: funcionalidadCreada.version, pedido_por: 'Ana', que_hace: MARCADOR })],
+      ['guia_crear', async () => prepararGuia(ctx, g, await indice(), { ...GUIA, key: 'guia:otra', pasos: MARCADOR })],
+      ['guia_actualizar', async () => prepararActualizacionGuia(ctx, g, await indice(), { id: guia.id, version_esperada: guia.version, pedido_por: 'Ana', pasos: MARCADOR })],
+      [
+        'adr_crear',
+        async () => prepararAdr(ctx, g, await indice(), { titulo: 'Usar X', contexto: MARCADOR, decision: 'd', alternativas: 'a', consecuencias: 'c', deciders: ['Ana'], evidence: 'propuesto', fuentes: ['repo:x.ts@abc1234'] }),
+      ],
+      [
+        'incidencia_crear',
+        async () =>
+          prepararIncidencia(ctx, g, await indice(), {
+            titulo: 'Falla',
+            sintoma: MARCADOR,
+            impacto: 'i',
+            severity: 'alta',
+            environment: 'produccion',
+            detected: '2026-09-29',
+            prioridad: 'P1',
+            fuentes: ['repo:x.ts@abc1234'],
+            pedido_por: 'Ana',
+          }),
+      ],
+    ];
+    for (const [herramienta, preparar] of casos) assert.equal(await codigoDe(preparar()), 'CAMPO_INVALIDO', herramienta);
+  });
+
   test('el tablero muestra solo el proyecto, es idempotente y detecta ediciones a mano', async () => {
     await escribirNota(esc.proyecto, 'Tareas/DEM-T-0001-a.md', notaTarea({ id: 'DEM-T-0001', titulo: 'Tarea propia', prioridad: 'P1' }));
     await escribirNota(esc.proyecto, 'Tareas/ajena.md', notaTarea({ id: 'DEM-T-0002', titulo: 'TESTIGO-AJENA', projectId: 'demo-otro' }));

@@ -104,6 +104,7 @@ describe('carpetas y usuario configurables', () => {
     const g = crearGuardia(ctx.proyecto, ctx.config.limites);
     const datos = { titulo: 'Probar carpetas', descripcion: 'x', criterios: ['y'], prioridad: 'P2', estado_inicial: 'Por hacer' as const };
     const p = await prepararTareaNueva(ctx, g, await indexar(g, ctx.config), { ...datos, pedido_por: quienPide(ctx, undefined) });
+    assert.ok('confirmacion' in p, 'una tarea nueva no puede salir repetida');
     await aplicarCambio(ctx, g, p.confirmacion);
     const texto = await readFile(path.join(ctx.proyecto, 'Trabajo', 'Pendientes', 'DEM-T-0001-probar-carpetas.md'), 'utf8');
     assert.match(texto, /pidió: Ana/);

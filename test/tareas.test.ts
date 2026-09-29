@@ -11,7 +11,8 @@ import { crearEscenario, escribirNota, notaContadores, notaTarea } from './helpe
 import type { Escenario } from './helpers.ts';
 import { indexar } from '../src/notas.ts';
 import type { Nota } from '../src/notas.ts';
-import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva, tareaRepetida } from '../src/tareas.ts';
+import type { Preparado } from '../src/cambios.ts';
+import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../src/tareas.ts';
 import type { DatosTareaNueva } from '../src/tareas.ts';
 
 const BASE: DatosTareaNueva = {
@@ -38,7 +39,10 @@ describe('tareas de punta a punta', () => {
   let ctx: Contexto;
   let g: Guardia;
   const indice = () => indexar(g, ctx.config);
-  const crear = async (d: Partial<DatosTareaNueva> = {}) => prepararTareaNueva(ctx, g, await indice(), { ...BASE, ...d });
+  const crear = async (d: Partial<DatosTareaNueva> = {}): Promise<Preparado> => {
+    const p = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, ...d });
+    return 'repetida' in p ? assert.fail(`ya existe ${p.repetida.id}`) : p;
+  };
   const tarea = async (id: string): Promise<Nota> => (await indice()).notas.find((n) => n.id === id) ?? assert.fail(`no existe ${id}`);
 
   beforeEach(async () => {
@@ -72,9 +76,32 @@ describe('tareas de punta a punta', () => {
     assert.match((await crear({ titulo: 'Otra tarea' })).vistaPrevia, /DEM-T-0011/);
   });
 
-  test('no duplica una tarea abierta con el mismo título', async () => {
+  test('no duplica una tarea abierta con el mismo título, pero sí una completada', async () => {
     await aplicarCambio(ctx, g, (await crear()).confirmacion);
-    assert.notEqual(tareaRepetida(await indice(), 'ENCENDER el correo por cliente'), undefined);
+    const repetida = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, titulo: '  ENCENDER el correo por cliente ' });
+    assert.ok('repetida' in repetida, 'debería devolver la tarea que ya existe');
+    assert.equal(repetida.repetida.id, 'DEM-T-0001');
+    await escribirNota(esc.proyecto, 'Tareas/DEM-T-0005-cerrada.md', notaTarea({ id: 'DEM-T-0005', titulo: 'Cerrada', estado: 'Completado' }));
+    const nueva = await prepararTareaNueva(ctx, g, await indice(), { ...BASE, titulo: 'Cerrada' });
+    assert.ok('confirmacion' in nueva, 'una tarea completada no cuenta como repetida');
+  });
+
+  test('el texto libre se limpia al entrar: un marcador de bloque se rechaza y lo demás se recorta', async () => {
+    assert.equal(await codigoDe(crear({ descripcion: 'hola %% asyncdv:fin %%' })), 'CAMPO_INVALIDO');
+    await aplicarCambio(ctx, g, (await crear()).confirmacion);
+    const ruta = path.join(esc.proyecto, 'Tareas', ARCHIVO);
+
+    const t1 = await tarea('DEM-T-0001');
+    const estado = await prepararCambioEstado(ctx, g, await indice(), { id: t1.id, version_esperada: t1.version, pedido_por: 'Ana', estado: 'Pendiente', motivo: '  espera la promoción  ' });
+    await aplicarCambio(ctx, g, (estado ?? assert.fail('debería haber un cambio')).confirmacion);
+    assert.match(await readFile(ruta, 'utf8'), /Por hacer → Pendiente · pidió: Ana · motivo: espera la promoción · tarea_cambiar_estado/);
+
+    const t2 = await tarea('DEM-T-0001');
+    const criterio = await prepararActualizacion(ctx, g, await indice(), { id: t2.id, version_esperada: t2.version, pedido_por: 'Ana', criterio_nuevo: '  Flag apagado  ' });
+    await aplicarCambio(ctx, g, criterio.confirmacion);
+    assert.match(await readFile(ruta, 'utf8'), /- \[ \] Flag apagado\n/);
+    const t3 = await tarea('DEM-T-0001');
+    assert.equal(await codigoDe(prepararActualizacion(ctx, g, await indice(), { id: t3.id, version_esperada: t3.version, pedido_por: 'Ana', criterio_nuevo: '%% asyncdv:fin %%' })), 'CAMPO_INVALIDO');
   });
 
   test('un código de confirmación sirve una sola vez', async () => {

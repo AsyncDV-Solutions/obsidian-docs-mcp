@@ -2,7 +2,7 @@ import type { Contexto } from './arranque.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
 import { nombreProyecto } from './config.ts';
-import { ahora } from './dominio.ts';
+import { ahora, limpiarTextoLibre } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
 import type { Indice } from './notas.ts';
@@ -169,8 +169,9 @@ export function contenidoRelease(ctx: Contexto, d: DatosRelease): string {
 }
 
 // Crea o actualiza <carpetas.releases>/<prefijo>-R-v<versión>.md. Al actualizar, solo cambian las propiedades y el bloque.
-export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosRelease): Promise<Preparado> {
+export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosRelease): Promise<Preparado> {
   const cfg = ctx.config;
+  const d = limpiarTextoLibre(entrada, cfg.limites.campo_max_kb);
   const id = `${cfg.id_prefix}-R-v${d.version}`;
   const tagExiste = (await git(ctx, ['tag', '--list', `v${d.version}`])).trim() !== '';
   if (d.release_status === 'Publicada' && !tagExiste) {

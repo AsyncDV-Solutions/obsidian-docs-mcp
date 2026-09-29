@@ -3,7 +3,7 @@ import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { comandosTag, listaVerificacion, prepararBorradorRelease, proponer } from '../release.ts';
-import { ejecutar, textoLibre } from './comun.ts';
+import { ejecutar } from './comun.ts';
 import type { Entorno } from './comun.ts';
 import { PREPARA, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './tareas.ts';
 
@@ -80,20 +80,10 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
     async (args) =>
       ejecutar('release_borrador_guardar', async () => {
         const { ctx, guardia } = entorno.exigir();
-        const max = ctx.config.limites.campo_max_kb;
-        const limpiar = (items: string[] | undefined): string[] | undefined => items?.map((i) => textoLibre(i, 'item', max));
         const datos = {
           ...args,
-          resumen: textoLibre(args.resumen, 'resumen', max),
-          secciones: {
-            anadido: limpiar(args.anadido),
-            cambiado: limpiar(args.cambiado),
-            obsoleto: limpiar(args.obsoleto),
-            eliminado: limpiar(args.eliminado),
-            corregido: limpiar(args.corregido),
-            seguridad: limpiar(args.seguridad),
-          },
-          migraciones: limpiar(args.migraciones) ?? [],
+          secciones: { anadido: args.anadido, cambiado: args.cambiado, obsoleto: args.obsoleto, eliminado: args.eliminado, corregido: args.corregido, seguridad: args.seguridad },
+          migraciones: args.migraciones ?? [],
         };
         return respuestaPreparada(await prepararBorradorRelease(ctx, guardia, await indexar(guardia, ctx.config), datos));
       }),
