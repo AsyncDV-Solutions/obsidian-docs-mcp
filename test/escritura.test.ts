@@ -65,6 +65,15 @@ describe('bloques gestionados', () => {
     const nueva = escribirBloque(nota.replaceAll('\n', '\r\n'), 'historial', '- a', '\r\n');
     assert.ok(!/[^\r]\n/.test(nueva));
   });
+
+  test('normaliza los saltos del contenido al eol pedido', () => {
+    const crlf = escribirBloque(nota.replaceAll('\n', '\r\n'), 'historial', '- a\n- b', '\r\n');
+    assert.ok(!/[^\r]\n/.test(crlf), 'apareció un salto LF suelto');
+    assert.equal(leerBloque(crlf, 'historial')?.contenido, '- a\r\n- b');
+    const lf = escribirBloque(nota, 'historial', '- a\r\n- b', '\n');
+    assert.ok(!lf.includes('\r'), 'quedó un CR en una nota LF');
+    assert.equal(leerBloque(lf, 'historial')?.editadoAMano, false);
+  });
 });
 
 describe('confirmaciones, tope y diff', () => {
