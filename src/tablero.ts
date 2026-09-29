@@ -14,7 +14,7 @@ export const RUTA_TABLERO = 'Tablero.md';
 export function generarTablero(ctx: Contexto, indice: Indice): string {
   const items = indice.notas.filter((n) => n.tipo === 'tarea' || n.tipo === 'incidencia').sort(ordenPorPrioridad);
   const porId = new Map(indice.notas.map((n) => [n.id, n] as const)); // "as const": un par [clave, valor], no un arreglo cualquiera
-  const linea = (n: Nota): string => `- ${enlace(ctx, n.ruta, n.id)} · ${String(n.datos.priority ?? '—')} · ${n.titulo}`;
+  const linea = (n: Nota): string => `- ${enlace(ctx.config.project_dir, n.ruta, n.id)} · ${String(n.datos.priority ?? '—')} · ${n.titulo}`;
   const salida: string[] = [`_${items.length} ítems entre tareas e incidencias._`, ''];
 
   for (const estado of ESTADOS) {
@@ -29,7 +29,7 @@ export function generarTablero(ctx: Contexto, indice: Indice): string {
       .map(idDeEnlace)
       .map((id) => `${id} (${String(porId.get(id)?.datos.status ?? 'no existe')})`);
     const motivo = typeof n.datos.blocked_reason === 'string' ? ` · motivo: ${n.datos.blocked_reason}` : '';
-    salida.push(`- ${enlace(ctx, n.ruta, n.id)} · bloqueada por: ${dependencias.join(', ') || '—'}${motivo}`);
+    salida.push(`- ${enlace(ctx.config.project_dir, n.ruta, n.id)} · bloqueada por: ${dependencias.join(', ') || '—'}${motivo}`);
   }
   salida.push('', '### Por release');
 

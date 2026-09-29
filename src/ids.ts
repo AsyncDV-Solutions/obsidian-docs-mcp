@@ -5,8 +5,9 @@ import type { Nota } from './notas.ts';
 
 // Letra de cada tipo numerado dentro del id, con el prefijo del proyecto: PRJ-T-0001, PRJ-F-0001,
 // PRJ-I-0001, PRJ-ADR-0001 y PRJ-G-0001. Los releases no se numeran: su id lleva la versión (PRJ-R-v1.2.3).
-export const LETRA = { tarea: 'T', funcionalidad: 'F', incidencia: 'I', decision: 'ADR', guia: 'G' } as const;
+const LETRA = { tarea: 'T', funcionalidad: 'F', incidencia: 'I', decision: 'ADR', guia: 'G' } as const;
 export type TipoNumerado = keyof typeof LETRA;
+export const TIPOS_NUMERADOS = Object.keys(LETRA) as TipoNumerado[];
 
 export const RUTA_CONTADORES = '_contadores.md';
 
@@ -43,15 +44,14 @@ export function idValido(id: string, tipo: string, prefijo: string): boolean {
 
 // ——— Enlaces ———
 
-// Lo único que un enlace necesita saber del proyecto: la carpeta donde vive dentro del vault.
-export type Proyecto = { config: { project_dir: string } };
-
-// Enlace de Obsidian con la ruta completa dentro del vault: nunca es ambiguo.
-export function enlace(proyecto: Proyecto, rutaNota: string, alias: string): string {
-  return `[[${proyecto.config.project_dir}/${rutaNota.replace(/\.md$/i, '')}|${alias}]]`;
+// Enlace de Obsidian con la ruta completa dentro del vault: nunca es ambiguo. dirProyecto es project_dir.
+export function enlace(dirProyecto: string, rutaNota: string, alias: string): string {
+  return `[[${dirProyecto}/${rutaNota.replace(/\.md$/i, '')}|${alias}]]`;
 }
 
-const ID_EN_NOMBRE = new RegExp(`^(?:${ER_PREFIJO}-(?:${LETRAS})-${ER_NUMERO}|${ER_PREFIJO}-R-v${ER_VERSION})`);
+// El id debe terminar donde termina el nombre o donde sigue un slug (-), un encabezado (#), una referencia
+// a un bloque (^) o la extensión (.md): DEM-T-0001x o «DEM-T-0001 copia» son otras notas.
+const ID_EN_NOMBRE = new RegExp(`^(?:${ER_PREFIJO}-(?:${LETRAS})-${ER_NUMERO}|${ER_PREFIJO}-R-v${ER_VERSION})(?=$|[-#^]|\\.md(?:$|[#^]))`);
 
 // El id al que apunta un valor: un enlace [[…/ID-slug|alias]] o el texto tal cual. Si lo que nombra no es
 // un id, devuelve el nombre.
@@ -70,7 +70,7 @@ export function claveContador(tipo: TipoNumerado): string {
 
 // Contenido inicial de _contadores.md: un contador en cero por tipo numerado, en el orden de las letras.
 export function contadoresIniciales(): Record<string, number> {
-  return Object.fromEntries((Object.keys(LETRA) as TipoNumerado[]).map((tipo) => [claveContador(tipo), 0]));
+  return Object.fromEntries(TIPOS_NUMERADOS.map((tipo) => [claveContador(tipo), 0]));
 }
 
 // Siguiente número: nunca menor que el contador guardado ni que el mayor ID existente.

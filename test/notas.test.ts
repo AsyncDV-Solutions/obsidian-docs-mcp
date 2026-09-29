@@ -68,8 +68,17 @@ describe('índice y consultas', () => {
     assert.deepEqual(filtrar(idx, { depende_de: 'DEM-T-0001' }).map((n) => n.id), ['DEM-T-0002']);
   });
 
-  test('mencionaId reconoce enlaces con alias y no confunde prefijos', () => {
-    assert.equal(mencionaId(['[[Proyectos/demo/Tareas/DEM-T-0001-login|DEM-T-0001]]'], 'DEM-T-0001'), true);
-    assert.equal(mencionaId(['[[Proyectos/demo/Tareas/DEM-T-00010-x|DEM-T-00010]]'], 'DEM-T-0001'), false);
+  test('mencionaId reconoce el id exacto en un enlace y no confunde ids que se parecen', () => {
+    const enlaceA = (nombre: string): string => `[[Proyectos/demo/Tareas/${nombre}|x]]`;
+    for (const nombre of ['DEM-T-0001', 'DEM-T-0001-login', 'DEM-T-0001#Sección', 'DEM-T-0001^bloque', 'DEM-T-0001.md', 'DEM-T-0001.md#Sección']) {
+      assert.equal(mencionaId([enlaceA(nombre)], 'DEM-T-0001'), true, nombre);
+    }
+    for (const nombre of ['DEM-T-00010-x', 'DEM-T-0001x', 'DEM-T-0001 copia', 'DEM-T-0001_x', 'DEM-T-0002']) {
+      assert.equal(mencionaId([enlaceA(nombre)], 'DEM-T-0001'), false, nombre);
+    }
+    assert.equal(mencionaId('DEM-T-0001', 'DEM-T-0001'), true, 'un id suelto, sin lista');
+    assert.equal(mencionaId([enlaceA('DEM-R-v1.0.0')], 'DEM-R-v1.0.0'), true);
+    assert.equal(mencionaId([enlaceA('DEM-R-v1.0.0.1')], 'DEM-R-v1.0.0'), false, 'una versión con más partes es otro release');
+    assert.equal(mencionaId([enlaceA('DEM-T-0001-login')], 'DEM-T'), false, 'el filtro es un id exacto, no un prefijo');
   });
 });

@@ -10,8 +10,9 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y l
 - El `motivo` de `tarea_cambiar_estado` y el `criterio_nuevo` de `tarea_actualizar` con espacios sobrantes ya no llegan sin recortar a la nota: se validaban y se descartaba el valor recortado.
 
 ### Cambiado
+- Los filtros `depende_de` y `release` de `items_listar` comparan el id exacto. Un enlace a la nota coincide con su slug, con un ancla `#`, con una referencia `^` o con la extensión `.md`. `DEM-T-0001 copia` o `DEM-T-0001x` ya no coinciden con `DEM-T-0001`, y un prefijo como `DEM-T` ya no coincide con todo lo que empieza así.
 - El tope de tamaño y la prohibición de `%% asyncdv:` valen ahora para todo el texto que entra en una nota, no solo para los campos que ya se revisaban, y el error nombra el campo con su posición (`«criterios[1]»`, `«secciones.corregido[1]»`) en vez de solo el campo o del genérico `«item»`. Los códigos `CAMPO_GRANDE` y `CAMPO_INVALIDO` siguen igual.
-- Interno: el formato de los ids, sus enlaces y sus contadores viven en `src/ids.ts`, y el candado de escritura, en `src/escritura.ts`. El índice, el tablero, `iniciar`, la configuración y los esquemas de las herramientas lo derivan de ahí. Un solo lector de enlaces reemplaza a dos que aceptaban reglas distintas.
+- Interno: el formato de los ids, sus enlaces y sus contadores viven en `src/ids.ts`, y el bloqueo de escritura, en `src/escritura.ts`. El índice, el tablero, `iniciar`, la configuración y los esquemas de las herramientas lo derivan de ahí. Un solo lector de enlaces reemplaza a dos que aceptaban reglas distintas.
 - Interno: los preparadores limpian el texto al entrar y `prepararTareaNueva` devuelve la tarea repetida; los adaptadores de `herramientas/` quedan en parsear, llamar y responder, y sus esquemas comunes viven en `herramientas/comun.ts`.
 - La vista previa de crear un release cierra el contenido con `———`, como las demás creaciones, y todo reemplazo se rotula `Cambios en <ruta>:` (antes, crear una nota numerada decía `Actualizar _contadores.md:`).
 - Un bloque gestionado se escribe siempre con los saltos de línea de la nota: una nota nunca queda mezclada LF/CRLF.

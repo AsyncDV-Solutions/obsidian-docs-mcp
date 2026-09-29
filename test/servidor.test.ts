@@ -110,6 +110,23 @@ describe('servidor MCP, por sus herramientas', () => {
     assert.doesNotMatch(r.texto, /^\[[A-Z_]+\]/);
   });
 
+  // Cada herramienta acepta solo los ids de su tipo: la del tipo equivocado cae en el esquema y la correcta llega al dominio.
+  test('los esquemas de id distinguen funcionalidades, guías, tareas e incidencias', async () => {
+    const version = { version_esperada: '0123456789abcdef', pedido_por: 'Ana' };
+    const llamadas: [string, Record<string, unknown>, string, string][] = [
+      ['funcionalidad_actualizar', { ...version, titulo: 'Otro' }, 'DEM-F-0001', 'DEM-G-0001'],
+      ['guia_actualizar', { ...version, titulo: 'Otro' }, 'DEM-G-0001', 'DEM-F-0001'],
+      ['tarea_actualizar', { ...version, prioridad: 'P1' }, 'DEM-I-0001', 'DEM-F-0001'],
+      ['tarea_cambiar_estado', { ...version, estado: 'En curso' }, 'DEM-T-0001', 'DEM-G-0001'],
+    ];
+    for (const [herramienta, resto, idBueno, idMalo] of llamadas) {
+      const rechazada = await cliente.llamar(herramienta, { id: idMalo, ...resto });
+      assert.match(rechazada.texto, /^Input validation error: Invalid arguments for tool /, `${herramienta} con ${idMalo}`);
+      const aceptada = await cliente.llamar(herramienta, { id: idBueno, ...resto });
+      assert.match(aceptada.texto, /^\[NOTA_NO_EXISTE\] /, `${herramienta} con ${idBueno} llega al dominio`);
+    }
+  });
+
   test('la versión que entrega nota_leer sirve para editar la nota', async () => {
     const codigo = confirmacionDe((await cliente.llamar('tarea_crear', TAREA)).texto);
     await cliente.llamar('cambio_aplicar', { confirmacion: codigo });

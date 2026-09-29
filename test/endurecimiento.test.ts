@@ -52,8 +52,9 @@ describe('endurecimiento', () => {
 
   // El formato de un id lo define ids.ts: el índice, el tablero, iniciar, la configuración y los esquemas de
   // las herramientas lo derivan de ahí. Un patrón escrito a mano en otro archivo se desincroniza al agregar un tipo.
+  // La prueba vigila las formas habituales de reescribirlo; no puede demostrar que nadie lo haga de otra manera.
   test('solo ids.ts define el formato de los ids', async () => {
-    const formato = /\\d\{4,\}|\(T\|F\|I\|ADR\|G\)|R-v\\+d|\[A-Z\]\{2,5\}/;
+    const formato = /\\d\{4,\}|\(T\|F\|I\|ADR\|G\)|R-v\\+d|R-v\$\{|\[A-Z\]\{2,5\}|padStart\(4|ultimo_|\$\{[^}]*\}-(?:T|F|I|G|ADR|R)-|\[\[\$\{/;
     for (const archivo of await archivosTs(SRC)) {
       if (path.basename(archivo) === 'ids.ts') continue;
       assert.doesNotMatch(await readFile(archivo, 'utf8'), formato, archivo);

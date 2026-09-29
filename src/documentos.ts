@@ -45,7 +45,7 @@ function tablaAfirmaciones(afirmaciones: Afirmacion[]): string {
 }
 
 function listaPendientes(ctx: Contexto, indice: Indice, ids: string[] | undefined): string {
-  const enlaces = enlacesA(ctx, indice, ids);
+  const enlaces = enlacesA(ctx.config.project_dir, indice, ids);
   return enlaces.length === 0 ? '(ninguno)' : enlaces.map((e) => `- ${e}`).join('\n');
 }
 
@@ -70,7 +70,7 @@ export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, ind
       reviewed_commit: d.reviewed_commit,
       reviewed_on: ahora(ctx.config.zona_horaria).fecha,
       source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
+      related: enlacesA(ctx.config.project_dir, indice, d.relacionadas),
     },
     valores: {},
     bloques: {
@@ -148,7 +148,7 @@ async function prepararActualizacionConEvidencia(
     propiedades.push(['reviewed_commit', d.reviewed_commit], ['reviewed_on', ahora(ctx.config.zona_horaria).fecha]);
   }
   if (d.fuentes !== undefined) propiedades.push(['source', d.fuentes]);
-  if (d.relacionadas !== undefined) propiedades.push(['related', enlacesA(ctx, indice, d.relacionadas)]);
+  if (d.relacionadas !== undefined) propiedades.push(['related', enlacesA(ctx.config.project_dir, indice, d.relacionadas)]);
 
   const bloques: Record<string, string> = {};
   for (const [nombre, texto] of textos) if (texto !== undefined) bloques[nombre] = envolver(texto);
@@ -202,7 +202,7 @@ export async function prepararGuia(ctx: Contexto, guardia: Guardia, indice: Indi
       reviewed_commit: d.reviewed_commit,
       reviewed_on: ahora(ctx.config.zona_horaria).fecha,
       source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
+      related: enlacesA(ctx.config.project_dir, indice, d.relacionadas),
     },
     // Solo los usa una plantilla propia en el formato anterior a la 2.1.0 (campos {{…}}, sin bloques).
     valores: { proposito: d.proposito, pasos: d.pasos, problemas, afirmaciones: filasAfirmaciones(d.afirmaciones), pendientes },
@@ -243,11 +243,11 @@ export async function prepararAdr(ctx: Contexto, guardia: Guardia, indice: Indic
     propiedades: {
       decision_status: 'Propuesta',
       deciders: d.deciders,
-      supersedes: enlacesA(ctx, indice, d.supersedes),
+      supersedes: enlacesA(ctx.config.project_dir, indice, d.supersedes),
       area: d.area ?? [],
       evidence: d.evidence,
       source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
+      related: enlacesA(ctx.config.project_dir, indice, d.relacionadas),
     },
     valores: { contexto: d.contexto, decision: d.decision, alternativas: d.alternativas, consecuencias: d.consecuencias },
     herramienta: 'adr_crear',
@@ -285,9 +285,9 @@ export async function prepararIncidencia(ctx: Contexto, guardia: Guardia, indice
       environment: d.environment,
       detected: d.detected,
       area: d.area ?? [],
-      release: d.release === undefined ? undefined : enlacesA(ctx, indice, [d.release])[0],
+      release: d.release === undefined ? undefined : enlacesA(ctx.config.project_dir, indice, [d.release])[0],
       source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
+      related: enlacesA(ctx.config.project_dir, indice, d.relacionadas),
     },
     valores: { sintoma: d.sintoma, impacto: d.impacto, causa: d.causa ?? 'Pendiente de validar.' },
     historial: `creada en «Por hacer» · pidió: ${d.pedido_por}`,

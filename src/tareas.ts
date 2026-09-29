@@ -52,9 +52,9 @@ export async function prepararTareaNueva(ctx: Contexto, guardia: Guardia, indice
       area: d.area ?? [],
       assignee: d.responsable,
       due: d.due,
-      release: d.release === undefined ? undefined : enlacesA(ctx, indice, [d.release])[0],
-      blocked_by: enlacesA(ctx, indice, d.blocked_by),
-      related: enlacesA(ctx, indice, d.relacionadas),
+      release: d.release === undefined ? undefined : enlacesA(ctx.config.project_dir, indice, [d.release])[0],
+      blocked_by: enlacesA(ctx.config.project_dir, indice, d.blocked_by),
+      related: enlacesA(ctx.config.project_dir, indice, d.relacionadas),
       source: d.fuentes ?? [],
     },
     valores: {
@@ -93,7 +93,7 @@ export async function prepararCambioEstado(ctx: Contexto, guardia: Guardia, indi
     criteriosPendientes(nota.cuerpo),
   );
   if (problemas.length > 0) throw new ErrorMcp('TRANSICION', problemas.join(' '));
-  const bloqueadaPor = enlacesA(ctx, indice, d.blocked_by);
+  const bloqueadaPor = enlacesA(ctx.config.project_dir, indice, d.blocked_by);
   const detalles = [`pidió: ${d.pedido_por}`, d.motivo ? `motivo: ${d.motivo}` : '', d.resolution ? `resolution: ${d.resolution}` : '']
     .filter((x) => x !== '')
     .join(' · ');
@@ -130,11 +130,11 @@ export async function prepararActualizacion(ctx: Contexto, guardia: Guardia, ind
   if (d.prioridad !== undefined) propiedades.push(['priority', d.prioridad]);
   if (d.responsable !== undefined) propiedades.push(['assignee', d.responsable]);
   if (d.due !== undefined) propiedades.push(['due', d.due]);
-  if (d.release !== undefined) propiedades.push(['release', d.release === null ? null : enlacesA(ctx, indice, [d.release])[0]]);
+  if (d.release !== undefined) propiedades.push(['release', d.release === null ? null : enlacesA(ctx.config.project_dir, indice, [d.release])[0]]);
   if (d.area !== undefined) propiedades.push(['area', d.area]);
-  if (d.blocked_by !== undefined) propiedades.push(['blocked_by', enlacesA(ctx, indice, d.blocked_by)]);
+  if (d.blocked_by !== undefined) propiedades.push(['blocked_by', enlacesA(ctx.config.project_dir, indice, d.blocked_by)]);
   if (d.blocked_reason !== undefined) propiedades.push(['blocked_reason', d.blocked_reason]);
-  if (d.relacionadas !== undefined) propiedades.push(['related', enlacesA(ctx, indice, d.relacionadas)]);
+  if (d.relacionadas !== undefined) propiedades.push(['related', enlacesA(ctx.config.project_dir, indice, d.relacionadas)]);
   const criterio = d.criterio_nuevo;
   if (propiedades.length === 0 && criterio === undefined) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
   const nombres = [...propiedades.map(([clave]) => clave), ...(criterio === undefined ? [] : ['criterio'])];

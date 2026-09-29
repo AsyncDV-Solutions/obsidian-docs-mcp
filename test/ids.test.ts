@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { claveContador, contadoresIniciales, enlace, formatearId, idDeEnlace, idDeRelease, idValido, patronId, PATRON_ID_RELEASE, PATRON_PREFIJO, siguienteNumero } from '../src/ids.ts';
+import { claveContador, contadoresIniciales, enlace, formatearId, idDeEnlace, idDeRelease, idValido, patronId, PATRON_ID_RELEASE, PATRON_PREFIJO, siguienteNumero, TIPOS_NUMERADOS } from '../src/ids.ts';
 import type { Nota } from '../src/notas.ts';
-
-const PROYECTO = { config: { project_dir: 'Proyectos/demo' } };
 
 const nota = (id: string): Nota => ({ ruta: `${id}.md`, version: 'v', id, tipo: 'tarea', titulo: id, datos: {}, cuerpo: '' });
 
@@ -45,13 +43,15 @@ describe('ids', () => {
     assert.ok(PATRON_PREFIJO.test('DEM') && !PATRON_PREFIJO.test('D') && !PATRON_PREFIJO.test('ABCDEF') && !PATRON_PREFIJO.test('dem'));
   });
 
+  test('los tipos numerados son los de la tabla de letras, en su orden', () => {
+    assert.deepEqual(TIPOS_NUMERADOS, ['tarea', 'funcionalidad', 'incidencia', 'decision', 'guia']);
+  });
+
   test('enlace e idDeEnlace son inversos para todos los tipos', () => {
-    for (const [ruta, id] of [
-      ['Tareas/DEM-T-0001-encender-el-correo.md', 'DEM-T-0001'],
-      ['Decisiones/DEM-ADR-0002-usar-x.md', 'DEM-ADR-0002'],
-      ['Releases/DEM-R-v1.2.3.md', 'DEM-R-v1.2.3'],
-    ] as const) {
-      const escrito = enlace(PROYECTO, ruta, id);
+    const casos: [string, string][] = TIPOS_NUMERADOS.map((tipo) => [`Carpeta/${formatearId('DEM', tipo, 1)}-un-titulo.md`, formatearId('DEM', tipo, 1)]);
+    casos.push(['Releases/DEM-R-v1.2.3.md', 'DEM-R-v1.2.3']);
+    for (const [ruta, id] of casos) {
+      const escrito = enlace('Proyectos/demo', ruta, id);
       assert.equal(escrito, `[[Proyectos/demo/${ruta.replace(/\.md$/, '')}|${id}]]`);
       assert.equal(idDeEnlace(escrito), id);
     }
@@ -63,6 +63,12 @@ describe('ids', () => {
     assert.equal(idDeEnlace('[[Notas/Idea suelta|la idea]]'), 'Idea suelta');
     assert.equal(idDeEnlace('texto cualquiera'), 'texto cualquiera');
     assert.equal(idDeEnlace('[[Proyectos/demo/Tareas/DEM-T-00010-x|DEM-T-00010]]'), 'DEM-T-00010', 'DEM-T-00010 no es DEM-T-0001');
+    assert.equal(idDeEnlace('[[Tareas/DEM-T-0001#Sección|x]]'), 'DEM-T-0001', 'con ancla a un encabezado');
+    assert.equal(idDeEnlace('[[Tareas/DEM-T-0001^bloque|x]]'), 'DEM-T-0001', 'con referencia a un bloque');
+    assert.equal(idDeEnlace('[[Tareas/DEM-T-0001.md|x]]'), 'DEM-T-0001', 'con la extensión');
+    assert.equal(idDeEnlace('[[Tareas/DEM-T-0001 copia|x]]'), 'DEM-T-0001 copia', 'otra nota, no la tarea');
+    assert.equal(idDeEnlace('[[Tareas/DEM-T-0001x|x]]'), 'DEM-T-0001x');
+    assert.equal(idDeEnlace('[[Releases/DEM-R-v1.0.0.1|x]]'), 'DEM-R-v1.0.0.1', 'una versión con más partes es otro release');
   });
 
   test('contadores: una clave por tipo y un contenido inicial con todos en cero, en el orden de las letras', () => {

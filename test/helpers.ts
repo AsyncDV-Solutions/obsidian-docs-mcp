@@ -2,7 +2,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { contadoresIniciales } from '../src/ids.ts';
 
 export function marcador(projectId = 'demo', prefijo = 'DEM'): string {
   return ['---', `project_id: ${projectId}`, 'type: proyecto', `id_prefix: ${prefijo}`, 'schema: 1', 'title: Demo', '---', 'Marcador de prueba.', ''].join('\n');
@@ -90,7 +89,9 @@ export function notaTarea(o: {
 }
 
 export function notaContadores(valores: Record<string, number> = {}): string {
-  const todos = { ...contadoresIniciales(), ...valores };
+  // Sin ultimo_G a propósito: el MCP agrega el contador que falta. No sale de contadoresIniciales para no
+  // depender del código que se prueba.
+  const todos = { ultimo_T: 0, ultimo_F: 0, ultimo_I: 0, ultimo_ADR: 0, ...valores };
   return [
     '---',
     'project_id: demo',

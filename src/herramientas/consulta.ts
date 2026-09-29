@@ -3,6 +3,7 @@ import * as z from 'zod/v4';
 import { ESTADOS, PRIORIDADES, TIPOS, TIPOS_ITEM } from '../dominio.ts';
 import { ErrorMcp, ok } from '../errores.ts';
 import { separarNota } from '../frontmatter.ts';
+import { formatearId, idDeRelease } from '../ids.ts';
 import { buscar, filtrar, indexar, ordenPorPrioridad } from '../notas.ts';
 import { NOMBRE, VERSION } from '../version.ts';
 import { AVISO_DATOS, ejecutar } from './comun.ts';
@@ -100,7 +101,7 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
     'nota_leer',
     {
       description:
-        `Lee una nota del proyecto por id (p. ej. ${v.prefijo}-T-0001) o por ruta relativa a la carpeta del proyecto. Devuelve su contenido y su versión; la versión se exige después para editarla.`,
+        `Lee una nota del proyecto por id (p. ej. ${formatearId(v.prefijo, 'tarea', 1)}) o por ruta relativa a la carpeta del proyecto. Devuelve su contenido y su versión; la versión se exige después para editarla.`,
       inputSchema: z.object({
         id: z.string().max(40).optional(),
         ruta: z.string().max(260).optional(),
@@ -138,7 +139,7 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
         estado: z.enum(ESTADOS).optional(),
         prioridad: z.enum(PRIORIDADES).optional(),
         area: z.enum(v.areas).optional(),
-        release: z.string().max(40).optional().describe(`Id del release, p. ej. ${v.prefijo}-R-v1.0.0`),
+        release: z.string().max(40).optional().describe(`Id del release, p. ej. ${idDeRelease(v.prefijo, '1.0.0')}`),
         bloqueadas: z.boolean().optional(),
         depende_de: z.string().max(40).optional().describe('Id que aparece en blocked_by'),
       }),

@@ -38,6 +38,7 @@ describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
     for (const c of ['Trabajo', 'Funcionalidades', 'Decisiones', 'Incidencias', 'Releases', 'Guias']) assert.ok(carpetas.includes(c), c);
     assert.deepEqual(await readdir(path.join(esc.proyecto, 'Trabajo')), ['Tareas']);
     assert.match(await readFile(path.join(esc.proyecto, '_proyecto.md'), 'utf8'), /project_id: demo\ntype: proyecto\nid_prefix: DEM\nschema: 1\ntitle: Demo App/);
+    assert.match(await readFile(path.join(esc.proyecto, '_contadores.md'), 'utf8'), /type: contadores\nschema: 1\ntitle: Contadores\nultimo_T: 0\nultimo_F: 0\nultimo_I: 0\nultimo_ADR: 0\nultimo_G: 0\n/);
     assert.equal((await validarArranque(['--config', esc.rutaConfig], {})).ok, true);
   });
 

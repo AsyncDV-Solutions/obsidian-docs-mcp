@@ -4,7 +4,6 @@ import { ErrorMcp } from './errores.ts';
 import { separarNota } from './frontmatter.ts';
 import type { Guardia, Leida } from './guardia.ts';
 import { enlace, idDeEnlace, idValido } from './ids.ts';
-import type { Proyecto } from './ids.ts';
 
 export type Nota = {
   ruta: string; // relativa a la carpeta del proyecto
@@ -81,11 +80,11 @@ export function notaVigente(indice: Indice, id: string, version: string, tipos: 
 }
 
 // Convierte ids en enlaces. Cada id debe existir en el índice del proyecto.
-export function enlacesA(ctx: Proyecto, indice: Indice, ids: string[] | undefined): string[] {
+export function enlacesA(dirProyecto: string, indice: Indice, ids: string[] | undefined): string[] {
   return (ids ?? []).map((id) => {
     const nota = indice.notas.find((n) => n.id === id);
     if (nota === undefined) throw new ErrorMcp('ID_DESCONOCIDO', `No existe una nota del proyecto con id ${id}.`);
-    return enlace(ctx, nota.ruta, id);
+    return enlace(dirProyecto, nota.ruta, id);
   });
 }
 

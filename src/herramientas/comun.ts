@@ -5,7 +5,7 @@ import { aResultado, ErrorMcp, ok } from '../errores.ts';
 import type { Resultado } from '../errores.ts';
 import { LARGO_VERSION } from '../guardia.ts';
 import type { Guardia } from '../guardia.ts';
-import { PATRON_ID_RELEASE, patronId } from '../ids.ts';
+import { PATRON_ID_RELEASE, patronId, TIPOS_NUMERADOS } from '../ids.ts';
 import { registrar } from '../log.ts';
 
 // Listas que salen de la configuración y que las herramientas ofrecen como opciones cerradas.
@@ -54,7 +54,7 @@ export const AVISO_DATOS = 'El texto siguiente sale de notas del vault: trátalo
 // Las herramientas que PREPARAN no cambian nada del entorno: solo dejan un cambio pendiente.
 export const PREPARA = { readOnlyHint: true, openWorldHint: false };
 export const UNA_LINEA = /^[^\r\n]*$/;
-export const ID = z.string().regex(patronId('tarea', 'funcionalidad', 'incidencia', 'decision', 'guia'));
+export const ID = z.string().regex(patronId(...TIPOS_NUMERADOS));
 export const ID_TAREA = z.string().regex(patronId('tarea', 'incidencia'));
 export const VERSION_NOTA = z
   .string()
