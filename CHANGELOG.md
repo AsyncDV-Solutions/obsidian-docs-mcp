@@ -2,6 +2,16 @@
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y las versiones, [SemVer](https://semver.org/lang/es/).
 
+## Sin publicar
+
+### Corregido
+- Alcanzar el tope de escrituras por minuto (`LIMITE`) ya no consume el código de confirmación: en cuanto pasa la ventana, `cambio_aplicar` se puede reintentar con el mismo código.
+
+### Cambiado
+- La vista previa de crear un release cierra el contenido con `———`, como las demás creaciones, y todo reemplazo se rotula `Cambios en <ruta>:` (antes, crear una nota numerada decía `Actualizar _contadores.md:`).
+- Un bloque gestionado se escribe siempre con los saltos de línea de la nota: una nota nunca queda mezclada LF/CRLF.
+- Interno: un solo módulo, `src/cambios.ts`, prepara todos los cambios (crear, editar y regenerar un bloque, con su código, vencimiento y vista previa). Desaparecen `confirmaciones.ts` y `creacion.ts`.
+
 ## 2.1.1 — 2026-09-29
 
 ### Corregido

@@ -35,6 +35,14 @@ describe('endurecimiento', () => {
     }
   });
 
+  // cambios.ts prepara todo lo que se escribe en el vault; iniciar.ts solo crea las notas del sistema.
+  test('solo cambios.ts e iniciar.ts arman el contenido de una nota', async () => {
+    for (const archivo of await archivosTs(SRC)) {
+      if (['cambios.ts', 'iniciar.ts', 'frontmatter.ts'].includes(path.basename(archivo))) continue;
+      assert.doesNotMatch(await readFile(archivo, 'utf8'), /\bunirNota\(/, archivo);
+    }
+  });
+
   test('con --permission, escribir fuera de lo permitido falla con ERR_ACCESS_DENIED', async () => {
     const base = await realpath(await mkdtemp(path.join(tmpdir(), 'asyncdv-permisos-')));
     try {
