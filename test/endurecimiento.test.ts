@@ -31,6 +31,9 @@ describe('endurecimiento', () => {
   // Los comentarios pueden hablar de git y de procesos: solo cuenta el código.
   const sinComentarios = (texto: string): string => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
+  // Los únicos que importan escritura.ts: aplicar (por el escritor de la sesión), la sesión (que lo trae) e iniciar.
+  const IMPORTAN_ESCRITURA = ['aplicar.ts', 'iniciar.ts', 'sesion.ts'];
+
   test('solo git.ts lanza procesos', async () => {
     for (const archivo of await archivosTs(SRC)) {
       if (path.basename(archivo) === 'git.ts') continue;
@@ -65,14 +68,14 @@ describe('endurecimiento', () => {
   // Solo aplicar.ts (por el escritor de la sesión), sesion.ts (que lo trae) e iniciar.ts (que crea las notas del
   // sistema al preparar el proyecto, fuera de los cambios preparados) importan escritura.ts.
   test('solo aplicar.ts, sesion.ts e iniciar.ts importan escritura.ts', async () => {
-    const permitidos = ['aplicar.ts', 'escritura.ts', 'iniciar.ts', 'sesion.ts'];
+    const permitidos = ['escritura.ts', ...IMPORTAN_ESCRITURA];
     for (const archivo of await archivosTs(SRC)) {
       const nombre = path.relative(SRC, archivo);
       if (permitidos.includes(nombre)) continue;
       assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), /from '(?:\.\.?\/)+escritura\.ts'/, `${nombre} importa escritura.ts`);
     }
-    for (const nombre of ['aplicar.ts', 'sesion.ts', 'iniciar.ts']) {
-      assert.match(await readFile(path.join(SRC, nombre), 'utf8'), /from '\.\/escritura\.ts'/, `${nombre} debería importar escritura.ts`);
+    for (const nombre of IMPORTAN_ESCRITURA) {
+      assert.match(sinComentarios(await readFile(path.join(SRC, nombre), 'utf8')), /from '\.\/escritura\.ts'/, `${nombre} debería importar escritura.ts`);
     }
   });
 
@@ -115,7 +118,8 @@ describe('endurecimiento', () => {
     for (const archivo of await archivosTs(SRC)) {
       const nombre = path.relative(SRC, archivo);
       const texto = sinComentarios(await readFile(archivo, 'utf8'));
-      if (nombre !== 'escritura.ts' && nombre !== 'iniciar.ts') assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, `${nombre} llama al escritor sin pasar por la sesión`);
+      if (nombre === 'iniciar.ts') assert.doesNotMatch(texto, /\breemplazarAtomico\(/, 'iniciar solo crea notas nuevas: no reemplaza ninguna');
+      else if (nombre !== 'escritura.ts') assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, `${nombre} llama al escritor sin pasar por la sesión`);
       if (nombre !== 'escritura.ts' && nombre !== 'sesion.ts') assert.doesNotMatch(texto, /\bescritorReal\b/, `${nombre} usa el escritor de verdad`);
     }
     const aplicarTs = sinComentarios(await readFile(path.join(SRC, 'aplicar.ts'), 'utf8'));

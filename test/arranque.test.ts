@@ -107,11 +107,20 @@ describe('validarArranque', () => {
       { repo: { categorias: [{ clave: 'x', descripcion: 'X', archivos: ['../fuera.md'] }] } },
       { repo: { excluir: ['/absoluto/**'] } },
       { release: { rama_desarrollo: '--output=x' } },
+      { release: { rama_principal: '-x' } },
+      { release: { rama_principal: 'a..b' } },
+      { release: { rama_principal: 'a'.repeat(101) } },
+      { release: { rama_desarrollo: 'con espacio' } },
     ];
     for (const cambios of casos) {
       await esc.escribirConfig(cambios);
       assert.deepEqual(codigos(await arrancar()), ['CONFIG_ESQUEMA'], JSON.stringify(cambios));
     }
+  });
+
+  test('las ramas aceptan letras, dígitos y . _ / -', async () => {
+    await esc.escribirConfig({ release: { rama_principal: 'release/v1.2_x-3', rama_desarrollo: 'feature/nueva' } });
+    assert.deepEqual(codigos(await arrancar()), []);
   });
 
   test('plantillas_dir: una plantilla propia que calza se usa; una que no calza se rechaza', async () => {

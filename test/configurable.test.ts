@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, open, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import fsp, { access, mkdir, open, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
@@ -53,7 +54,7 @@ describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
 
   // iniciar crea las notas del sistema con crearExclusivo, como aplicar: fuerza el paso a disco (fsync) y no deja una
   // nota a medias. Se observa el fsync en el prototipo de los archivos abiertos.
-  async function archivoAbierto(): Promise<{ sync(): Promise<void> }> {
+  async function prototipoDeArchivo(): Promise<{ sync(): Promise<void> }> {
     const abierto = await open(esc.rutaConfig, 'r');
     try {
       return Object.getPrototypeOf(abierto) as { sync(): Promise<void> };
@@ -63,18 +64,42 @@ describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
   }
 
   test('las notas del sistema se escriben con fsync', async (t) => {
-    const sync = t.mock.method(await archivoAbierto(), 'sync');
+    const sync = t.mock.method(await prototipoDeArchivo(), 'sync');
     const r = await iniciarProyecto(await config());
-    assert.equal(r.creadas.filter((c) => c.endsWith('.md')).length, 3);
+    assert.equal(r.creadas.filter((ruta) => ruta.endsWith('.md')).length, 3);
     assert.equal(sync.mock.callCount(), 3, 'un fsync por cada nota del sistema');
   });
 
-  test('si el disco falla al escribir una nota del sistema, no queda a medias', async (t) => {
-    t.mock.method(await archivoAbierto(), 'sync', async () => {
-      throw new Error('EIO');
+  test('las notas que ya existían no se vuelven a escribir ni a sincronizar', async (t) => {
+    const cfg = await config();
+    await iniciarProyecto(cfg);
+    const sync = t.mock.method(await prototipoDeArchivo(), 'sync');
+    const r = await iniciarProyecto(cfg);
+    assert.equal(r.existentes.length, 3);
+    assert.equal(sync.mock.callCount(), 0);
+  });
+
+  test('si el disco falla al sincronizar una nota del sistema, esa no queda a medias y las anteriores quedan completas', async (t) => {
+    let llamadas = 0;
+    t.mock.method(await prototipoDeArchivo(), 'sync', async () => {
+      if (++llamadas === 3) throw new Error('EIO');
     });
     await assert.rejects(iniciarProyecto(await config()), /EIO/);
-    await assert.rejects(access(path.join(esc.proyecto, '_proyecto.md')), 'la nota que falló se borra');
+    for (const completa of ['_proyecto.md', '_contadores.md']) await access(path.join(esc.proyecto, completa));
+    await assert.rejects(access(path.join(esc.proyecto, 'Tablero.md')), 'la nota que falló se borra');
+  });
+
+  test('un error del disco distinto de «ya existe» no se toma por una nota que ya existía', async (t) => {
+    const abrir = t.mock.method(fsp, 'open', async () => {
+      throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    });
+    syncBuiltinESMExports();
+    t.after(() => {
+      abrir.mock.restore();
+      syncBuiltinESMExports();
+    });
+    await assert.rejects(iniciarProyecto(await config()), /EACCES/);
+    assert.ok(abrir.mock.callCount() > 0, 'el error viene de abrir la nota');
   });
 
   test('avisa si el vault no parece un vault de Obsidian', async () => {
