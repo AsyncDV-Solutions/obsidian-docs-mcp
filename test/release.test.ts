@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
@@ -141,5 +141,44 @@ describe('propuesta y borrador sobre un repo real', () => {
     assert.equal(nota.datos.tag_verified, false);
     const publicada = { ...datos, release_status: 'Publicada' as const, version_esperada: nota.version };
     assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), publicada)), 'TAG_NO_VERIFICADO');
+  });
+
+  test('actualizar el borrador cambia propiedades y bloque, conserva lo escrito fuera y exige la versión leída', async () => {
+    const g = crearGuardia(ctx.proyecto, ctx.config.limites);
+    const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();
+    const datos: DatosRelease = {
+      version: '1.0.0',
+      titulo: 'Demo App v1.0.0',
+      resumen: 'Primera versión.',
+      secciones: {},
+      migraciones: [],
+      bump: 'linea-base',
+      base_ref: 'ninguno',
+      head_ref: head,
+      release_status: 'Borrador',
+      fuentes: [],
+    };
+    await aplicarCambio(ctx, g, (await prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), datos)).confirmacion);
+    const ruta = path.join(ctx.proyecto, 'Releases', 'DEM-R-v1.0.0.md');
+    await writeFile(ruta, (await readFile(ruta, 'utf8')).replace('## Pasos manuales\n(complétalo tú)', '## Pasos manuales\nAvisar a soporte.'), 'utf8');
+    const nota = (await indexar(g, ctx.config)).notas.find((n) => n.id === 'DEM-R-v1.0.0') ?? assert.fail('falta el release');
+    assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), datos)), 'CONFLICTO', 'sin version_esperada no se actualiza');
+    const p = await prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), {
+      ...datos,
+      titulo: 'Demo App v1.0.0 — lista',
+      resumen: 'Revisada.',
+      secciones: { corregido: ['Un bug'] },
+      release_status: 'Lista',
+      version_esperada: nota.version,
+    });
+    assert.match(p.vistaPrevia, /^Cambios en Releases\/DEM-R-v1\.0\.0\.md:\n/);
+    await aplicarCambio(ctx, g, p.confirmacion);
+    const texto = await readFile(ruta, 'utf8');
+    assert.match(texto, /^title: Demo App v1\.0\.0 — lista$/m);
+    assert.match(texto, /^release_status: Lista$/m);
+    assert.match(texto, /## Corregido\n- Un bug\n/);
+    assert.match(texto, /## Pasos manuales\nAvisar a soporte\./);
+    assert.doesNotMatch(texto, /Primera versión\./);
+    assert.equal(await codigoDe(prepararBorradorRelease(ctx, g, await indexar(g, ctx.config), { ...datos, version_esperada: nota.version })), 'CONFLICTO', 'la versión leída antes de aplicar ya no vale');
   });
 });

@@ -1,12 +1,11 @@
 import type { Contexto } from './arranque.ts';
-import { escribirBloque, leerBloque } from './bloques.ts';
-import { enlacesA, prepararCreacion } from './creacion.ts';
-import type { Preparado } from './creacion.ts';
+import { crear, editar } from './cambios.ts';
+import type { Preparado } from './cambios.ts';
 import { ahora } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
+import { enlacesA, notaVigente } from './notas.ts';
 import type { Indice } from './notas.ts';
-import { notaVigente, prepararEdicion } from './tareas.ts';
 
 // Una celda de tabla Markdown no puede tener "|" (partiría la columna) ni saltos de línea.
 function celda(texto: string): string {
@@ -58,8 +57,9 @@ function envolver(texto: string): string {
 
 export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosFuncionalidad): Promise<Preparado> {
   exigirKeyLibre(indice, d.key);
-  return prepararCreacion(ctx, guardia, indice, {
+  return crear(ctx, guardia, indice, {
     tipo: 'funcionalidad',
+    id: { numerar: 'funcionalidad' },
     carpeta: ctx.config.carpetas.funcionalidades,
     titulo: d.titulo,
     propiedades: {
@@ -147,39 +147,15 @@ async function prepararActualizacionConEvidencia(
   if (d.fuentes !== undefined) propiedades.push(['source', d.fuentes]);
   if (d.relacionadas !== undefined) propiedades.push(['related', enlacesA(ctx, indice, d.relacionadas)]);
 
-  const bloques = new Map<string, string>();
-  for (const [nombre, texto] of textos) if (texto !== undefined) bloques.set(nombre, texto);
-  if (d.afirmaciones !== undefined) bloques.set('afirmaciones', tablaAfirmaciones(d.afirmaciones));
-  if (d.pendientes !== undefined) bloques.set('pendientes', listaPendientes(ctx, indice, d.pendientes));
-  if (propiedades.length === 0 && bloques.size === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
+  const bloques: Record<string, string> = {};
+  for (const [nombre, texto] of textos) if (texto !== undefined) bloques[nombre] = envolver(texto);
+  if (d.afirmaciones !== undefined) bloques.afirmaciones = envolver(tablaAfirmaciones(d.afirmaciones));
+  if (d.pendientes !== undefined) bloques.pendientes = envolver(listaPendientes(ctx, indice, d.pendientes));
 
-  // Antes de preparar: cada bloque pedido debe existir, y lo editado a mano se advierte (se va a pisar).
-  const avisos: string[] = [];
-  for (const nombre of bloques.keys()) {
-    const bloque = leerBloque(nota.cuerpo, nombre);
-    if (bloque === null) {
-      throw new ErrorMcp(
-        'BLOQUE_FALTA',
-        `${nota.id} no tiene el bloque gestionado «${nombre}» (se creó a mano o con una plantilla sin bloques): edita esa sección a mano en Obsidian o agrégale sus marcadores.`,
-      );
-    }
-    if (bloque.editadoAMano) avisos.push(`ATENCIÓN: el bloque «${nombre}» fue editado a mano; al aplicar se pierden esos cambios.`);
-  }
-
-  const nombres = [...propiedades.map(([clave]) => clave), ...bloques.keys()];
+  const nombres = [...propiedades.map(([clave]) => clave), ...Object.keys(bloques)];
+  if (nombres.length === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
   const detalles = [`pidió: ${d.pedido_por}`, d.motivo ? `motivo: ${d.motivo}` : ''].filter((x) => x !== '').join(' · ');
-  return prepararEdicion(ctx, guardia, nota, {
-    herramienta: t.herramienta,
-    historial: `actualizada: ${nombres.join(', ')} · ${detalles}`,
-    editar: (doc) => {
-      for (const [clave, valor] of propiedades) doc.set(clave, valor);
-    },
-    cuerpo:
-      bloques.size === 0
-        ? undefined
-        : (cuerpo, eol) => [...bloques].reduce((c, [nombre, texto]) => escribirBloque(c, nombre, envolver(texto).replace(/\r?\n/g, eol), eol), cuerpo),
-    avisos,
-  });
+  return editar(ctx, guardia, nota, { herramienta: t.herramienta, historial: `actualizada: ${nombres.join(', ')} · ${detalles}`, propiedades, bloques });
 }
 
 // ——— Versión 1.1.0 ———
@@ -210,8 +186,9 @@ export async function prepararGuia(ctx: Contexto, guardia: Guardia, indice: Indi
   exigirKeyLibre(indice, d.key);
   const problemas = textoProblemas(d.problemas);
   const pendientes = listaPendientes(ctx, indice, d.pendientes);
-  return prepararCreacion(ctx, guardia, indice, {
+  return crear(ctx, guardia, indice, {
     tipo: 'guia',
+    id: { numerar: 'guia' },
     carpeta: ctx.config.carpetas.guias,
     titulo: d.titulo,
     propiedades: {
@@ -253,8 +230,9 @@ export type DatosAdr = {
 
 // Una decisión nace «Propuesta». Pasarla a «Aceptada» (con decided) lo haces tú en Obsidian.
 export async function prepararAdr(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosAdr): Promise<Preparado> {
-  return prepararCreacion(ctx, guardia, indice, {
+  return crear(ctx, guardia, indice, {
     tipo: 'decision',
+    id: { numerar: 'decision' },
     carpeta: ctx.config.carpetas.decisiones,
     titulo: d.titulo,
     propiedades: {
@@ -289,8 +267,9 @@ export type DatosIncidencia = {
 
 // Una incidencia usa los mismos estados que una tarea (y tarea_cambiar_estado desde esta etapa).
 export async function prepararIncidencia(ctx: Contexto, guardia: Guardia, indice: Indice, d: DatosIncidencia): Promise<Preparado> {
-  return prepararCreacion(ctx, guardia, indice, {
+  return crear(ctx, guardia, indice, {
     tipo: 'incidencia',
+    id: { numerar: 'incidencia' },
     carpeta: ctx.config.carpetas.incidencias,
     titulo: d.titulo,
     propiedades: {

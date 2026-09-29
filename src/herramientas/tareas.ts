@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { aplicarCambio } from '../aplicar.ts';
-import type { Preparado } from '../creacion.ts';
+import type { Preparado } from '../cambios.ts';
 import { ESTADOS, PRIORIDADES, RESOLUCIONES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import type { Resultado } from '../errores.ts';

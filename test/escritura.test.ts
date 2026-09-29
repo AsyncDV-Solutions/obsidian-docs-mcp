@@ -3,7 +3,6 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { escribirBloque, leerBloque } from '../src/bloques.ts';
-import { consumirCupo, diffLineas, guardarCambio, tomarCambio } from '../src/confirmaciones.ts';
 import { crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
 import { versionDe } from '../src/guardia.ts';
 import { crearEscenario } from './helpers.ts';
@@ -65,21 +64,13 @@ describe('bloques gestionados', () => {
     const nueva = escribirBloque(nota.replaceAll('\n', '\r\n'), 'historial', '- a', '\r\n');
     assert.ok(!/[^\r]\n/.test(nueva));
   });
-});
 
-describe('confirmaciones, tope y diff', () => {
-  test('un código vencido se rechaza', () => {
-    const { confirmacion } = guardarCambio({ descripcion: 'x', operaciones: [] }, 0);
-    assert.throws(() => tomarCambio(confirmacion), { codigo: 'CONFIRMACION_INVALIDA' });
-  });
-
-  test('el tope de escrituras corta', () => {
-    consumirCupo(2);
-    consumirCupo(2);
-    assert.throws(() => consumirCupo(2), { codigo: 'LIMITE' });
-  });
-
-  test('el diff muestra lo que cambia', () => {
-    assert.equal(diffLineas('a\nb\nc', 'a\nB\nc'), '  a\n- b\n+ B\n  c');
+  test('normaliza los saltos del contenido al eol pedido', () => {
+    const crlf = escribirBloque(nota.replaceAll('\n', '\r\n'), 'historial', '- a\n- b', '\r\n');
+    assert.ok(!/[^\r]\n/.test(crlf), 'apareció un salto LF suelto');
+    assert.equal(leerBloque(crlf, 'historial')?.contenido, '- a\r\n- b');
+    const lf = escribirBloque(nota, 'historial', '- a\r\n- b', '\n');
+    assert.ok(!lf.includes('\r'), 'quedó un CR en una nota LF');
+    assert.equal(leerBloque(lf, 'historial')?.editadoAMano, false);
   });
 });

@@ -1,14 +1,10 @@
 import type { Contexto } from './arranque.ts';
-import { escribirBloque, leerBloque } from './bloques.ts';
-import { diffLineas, guardarCambio } from './confirmaciones.ts';
-import type { Cambio } from './confirmaciones.ts';
-import { enlace } from './creacion.ts';
-import type { Preparado } from './creacion.ts';
-import { ahora, ESTADOS } from './dominio.ts';
+import { regenerarBloque } from './cambios.ts';
+import type { Preparado } from './cambios.ts';
+import { ESTADOS } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
-import { separarNota, unirNota } from './frontmatter.ts';
-import type { Guardia, Leida } from './guardia.ts';
-import { comoLista, ordenPorPrioridad } from './notas.ts';
+import type { Guardia } from './guardia.ts';
+import { comoLista, enlace, ordenPorPrioridad } from './notas.ts';
 import type { Indice, Nota } from './notas.ts';
 
 export const RUTA_TABLERO = 'Tablero.md';
@@ -60,33 +56,12 @@ export function generarTablero(ctx: Contexto, indice: Indice): string {
 
 // Prepara el reemplazo del bloque «tablero». Devuelve null si ya está al día.
 export async function prepararTablero(ctx: Contexto, guardia: Guardia, indice: Indice): Promise<Preparado | null> {
-  const cfg = ctx.config;
-  let leida: Leida;
   try {
-    leida = await guardia.leer(RUTA_TABLERO);
+    return await regenerarBloque(ctx, guardia, RUTA_TABLERO, 'tablero', generarTablero(ctx, indice));
   } catch (error) {
     if (error instanceof ErrorMcp && error.codigo === 'NOTA_NO_EXISTE') {
       throw new ErrorMcp('TABLERO_FALTA', `Falta ${RUTA_TABLERO}: créalo con «pnpm run iniciar».`);
     }
     throw error;
   }
-  const sep = separarNota(leida.texto, cfg.limites.yaml_max_kb * 1024);
-  if (sep.datos.project_id !== cfg.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${RUTA_TABLERO} no pertenece a este proyecto.`);
-  const bloque = leerBloque(sep.cuerpo, 'tablero');
-  if (bloque === null) throw new ErrorMcp('BLOQUE_FALTA', `${RUTA_TABLERO} no tiene el bloque «tablero».`);
-
-  const nuevo = generarTablero(ctx, indice).replace(/\n/g, sep.eol);
-  const igual = nuevo.replaceAll('\r\n', '\n') === bloque.contenido.replaceAll('\r\n', '\n');
-  if (igual && !bloque.editadoAMano) return null;
-
-  sep.doc.set('updated', ahora(cfg.zona_horaria).fechaHora);
-  const cuerpo = escribirBloque(sep.cuerpo, 'tablero', nuevo, sep.eol);
-  const contenido = unirNota({ bom: sep.bom, eol: sep.eol, doc: sep.doc, cuerpo });
-  const cambio: Cambio = {
-    descripcion: 'regenerar el tablero',
-    operaciones: [{ tipo: 'reemplazar', ruta: RUTA_TABLERO, contenido, versionEsperada: leida.version }],
-  };
-  const { confirmacion, expira } = guardarCambio(cambio, cfg.limites.confirmacion_minutos);
-  const aviso = bloque.editadoAMano ? 'ATENCIÓN: el bloque del tablero fue editado a mano; al aplicar se pierden esos cambios.\n' : '';
-  return { cambio, confirmacion, expira, vistaPrevia: `${aviso}Cambios en ${RUTA_TABLERO}:\n${diffLineas(leida.texto, contenido)}` };
 }

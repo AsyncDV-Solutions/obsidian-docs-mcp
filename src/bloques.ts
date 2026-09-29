@@ -33,9 +33,11 @@ export function leerBloque(cuerpo: string, nombre: string): Bloque | null {
 }
 
 // Reemplaza el contenido del bloque y renueva su huella. Lo de afuera no cambia ni un byte.
+// El contenido se escribe con los saltos de línea pedidos (eol): la nota nunca queda mezclada.
 export function escribirBloque(cuerpo: string, nombre: string, contenido: string, eol: string): string {
   const bloque = leerBloque(cuerpo, nombre);
   if (bloque === null) throw new ErrorMcp('BLOQUE_FALTA', `La nota no tiene el bloque «${nombre}».`);
-  const nuevo = [`%% asyncdv:inicio ${nombre} h=${huella(contenido)} %%`, contenido, '%% asyncdv:fin %%'].join(eol);
+  const normalizado = contenido.replace(/\r?\n/g, eol);
+  const nuevo = [`%% asyncdv:inicio ${nombre} h=${huella(normalizado)} %%`, normalizado, '%% asyncdv:fin %%'].join(eol);
   return cuerpo.slice(0, bloque.desde) + nuevo + cuerpo.slice(bloque.hasta);
 }
