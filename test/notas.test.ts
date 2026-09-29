@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { cargarConfig } from '../src/config.ts';
 import type { Config } from '../src/config.ts';
 import { crearGuardia } from '../src/guardia.ts';
-import { buscar, estadoDe, filtrar, indexar, leerNotaDelProyecto, mencionaId } from '../src/notas.ts';
-import type { Nota } from '../src/notas.ts';
+import { buscar, conteoDeNotas, estadoDe, filtrar, indexar, leerNota, leerNotaDelProyecto, mencionaId } from '../src/notas.ts';
+import type { Indice, Nota } from '../src/notas.ts';
 import { codigoDe, crearEscenario, escribirNota, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
@@ -88,6 +88,29 @@ describe('índice y consultas', () => {
     assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/sin-id.md')), 'PROJECT_ID_AJENO');
     assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/rota.md')), 'YAML_INVALIDO');
     assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/no-existe.md')), 'NOTA_NO_EXISTE');
+  });
+
+  test('leerNota lee por id o por ruta, y exige uno de los dos', async () => {
+    const g = crearGuardia(esc.proyecto, config.limites);
+    const porRuta = await leerNota(g, config, { ruta: 'Tareas/DEM-T-0002-correo.md' });
+    assert.equal(porRuta.ruta, 'Tareas/DEM-T-0002-correo.md');
+    assert.deepEqual(await leerNota(g, config, { id: 'DEM-T-0002' }), porRuta, 'el id lleva a la misma nota');
+    assert.equal(await codigoDe(leerNota(g, config, {})), 'ARGUMENTOS', 'ninguno');
+    assert.equal(await codigoDe(leerNota(g, config, { id: 'DEM-T-0002', ruta: 'Tareas/DEM-T-0002-correo.md' })), 'ARGUMENTOS', 'los dos');
+    assert.equal(await codigoDe(leerNota(g, config, { id: 'DEM-T-0099' })), 'NOTA_NO_EXISTE');
+    assert.equal(await codigoDe(leerNota(g, config, { id: 'DEM-T-0003' })), 'NOTA_NO_EXISTE', 'la nota de otro proyecto no está en el índice');
+    assert.equal(await codigoDe(leerNota(g, config, { ruta: 'Tareas/ajena.md' })), 'PROJECT_ID_AJENO');
+  });
+
+  test('conteoDeNotas cuenta las tareas por estado y las demás notas por tipo', () => {
+    const nota = (tipo: string, datos: Record<string, unknown> = {}): Nota => ({ ruta: `${tipo}.md`, version: 'v', id: tipo, tipo, titulo: tipo, datos, cuerpo: '' });
+    const vacio: Indice = { notas: [], anomalias: [], truncado: false };
+    assert.deepEqual(conteoDeNotas(vacio), {});
+    const conteo = conteoDeNotas({
+      ...vacio,
+      notas: [nota('tarea', { status: 'En curso' }), nota('tarea', { status: 'En curso' }), nota('tarea', { status: 'Bloqueado' }), nota('tarea'), nota('incidencia', { status: 'En curso' }), nota('guia'), nota('guia')],
+    });
+    assert.deepEqual(conteo, { 'tarea · En curso': 2, 'tarea · Bloqueado': 1, 'tarea · sin estado': 1, incidencia: 1, guia: 2 });
   });
 
   test('mencionaId reconoce el id exacto en un enlace y no confunde ids que se parecen', () => {

@@ -67,12 +67,14 @@ describe('endurecimiento', () => {
     }
   });
 
-  // Una fuente de git, «repo:<ruta>@<sha>», la escribe y la lee fuentes.ts. La prueba vigila las formas habituales
-  // de escribirla o de leerla a mano en otro archivo.
-  test('solo fuentes.ts escribe y lee las fuentes de git', async () => {
-    const fuente = /repo:\$\{|\(repo\|doc\)|`doc:\$\{/;
+  // Una fuente con commit, «repo:<ruta>@<sha>», la escribe y la lee fuentes.ts, y el patrón del SHA es suyo. La prueba
+  // vigila las formas habituales de escribirla, de leerla o de validar su SHA a mano en otro archivo, con plantillas,
+  // con concatenación o con startsWith; no puede demostrar que nadie interprete una fuente por otro camino. Un texto
+  // de documentación, como «repo:<ruta>@<sha>» en la descripción de una herramienta, no cuenta.
+  test('solo fuentes.ts escribe y lee las fuentes con commit', async () => {
+    const fuente = /(?:repo|doc):\$\{|\$\{[^}]*\}:\$\{[^}]*\}@|['"`](?:repo|doc):['"`]\s*\+|startsWith\(['"`](?:repo|doc):|\(\?:repo\|doc\)|\(repo\|doc\)|\[0-9a-f\]\{7,40\}/;
     for (const archivo of await archivosTs(SRC)) {
-      if (path.basename(archivo) === 'fuentes.ts') continue;
+      if (path.relative(SRC, archivo) === 'fuentes.ts') continue;
       assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), fuente, archivo);
     }
   });

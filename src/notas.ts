@@ -103,6 +103,29 @@ export async function leerNotaDelProyecto(guardia: Guardia, config: Config, rela
   return leida;
 }
 
+// Lee una nota del proyecto por su id o por su ruta relativa: exactamente uno de los dos.
+export async function leerNota(guardia: Guardia, config: Config, referencia: { id?: string | undefined; ruta?: string | undefined }): Promise<Leida> {
+  const { id, ruta } = referencia;
+  if ((id === undefined) === (ruta === undefined)) throw new ErrorMcp('ARGUMENTOS', 'Indica id o ruta: uno de los dos.');
+  let relativa = ruta ?? '';
+  if (id !== undefined) {
+    const nota = (await indexar(guardia, config)).notas.find((n) => n.id === id);
+    if (nota === undefined) throw new ErrorMcp('NOTA_NO_EXISTE', `No hay una nota del proyecto con id ${id}.`);
+    relativa = nota.ruta;
+  }
+  return leerNotaDelProyecto(guardia, config, relativa);
+}
+
+// Cuántas notas hay de cada tipo. Las tareas se cuentan además por estado: «tarea · En curso».
+export function conteoDeNotas(indice: Indice): Record<string, number> {
+  const conteos: Record<string, number> = {};
+  for (const n of indice.notas) {
+    const clave = n.tipo === 'tarea' ? `tarea · ${String(n.datos.status ?? 'sin estado')}` : n.tipo;
+    conteos[clave] = (conteos[clave] ?? 0) + 1;
+  }
+  return conteos;
+}
+
 export type Filtros = {
   tipo?: string;
   estado?: string;

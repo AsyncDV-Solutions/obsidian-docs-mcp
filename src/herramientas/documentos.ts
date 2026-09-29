@@ -11,15 +11,15 @@ import {
 } from '../documentos.ts';
 import { EVIDENCIAS, PRIORIDADES, SEVERIDADES } from '../dominio.ts';
 import { ok } from '../errores.ts';
-import { fuenteRepo } from '../fuentes.ts';
+import { fuenteRepo, PATRON_SHA } from '../fuentes.ts';
 import { patronId } from '../ids.ts';
 import { indexar } from '../notas.ts';
 import { prepararTablero } from '../tablero.ts';
-import { conPedidoPor, ejecutar, FECHA, ID, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { conPedidoPor, ejecutar, FECHA, ID, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno, Vocabulario } from './comun.ts';
 
 const FUENTE = z.string().min(3).max(300).regex(UNA_LINEA).describe(`tipo:valor[@sha], p. ej. ${fuenteRepo('src/pedidos/crear.ts', '3e22c9c')}`);
-const SHA = z.string().regex(/^[0-9a-f]{7,40}$/);
+const SHA = z.string().regex(PATRON_SHA);
 const ID_FUNCIONALIDAD = z.string().regex(patronId('funcionalidad'));
 const ID_GUIA = z.string().regex(patronId('guia'));
 const TITULO = z.string().min(3).max(200).regex(UNA_LINEA);
@@ -67,7 +67,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
         relacionadas: z.array(ID).max(20).optional(),
         pendientes: z.array(ID).max(20).optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('funcionalidad_crear', async () => {
@@ -86,7 +86,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
         ...camposActualizacion(v),
         que_hace: z.string().min(1).optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('funcionalidad_actualizar', async () => {
@@ -114,7 +114,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
         relacionadas: z.array(ID).max(20).optional(),
         pendientes: z.array(ID).max(20).optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('guia_crear', async () => {
@@ -135,7 +135,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
         pasos: z.string().min(1).optional().describe('Cómo se usa: pasos numerados en Markdown'),
         problemas: z.string().optional().describe('Problemas frecuentes y qué hacer. Vacío deja «(ninguno registrado)»'),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('guia_actualizar', async () => {
@@ -161,7 +161,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
         supersedes: z.array(ID).max(10).optional(),
         relacionadas: z.array(ID).max(20).optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('adr_crear', async () => {
@@ -189,7 +189,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
         relacionadas: z.array(ID).max(20).optional(),
         pedido_por: PEDIDO_POR,
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('incidencia_crear', async () => {
@@ -202,7 +202,7 @@ export function registrarDocumentos(server: McpServer, entorno: Entorno): void {
     'tablero_regenerar',
     {
       description: 'PREPARA la regeneración del bloque del tablero en Tablero.md (no escribe). Si el tablero ya está al día, no prepara nada.',
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async () =>
       ejecutar('tablero_regenerar', async () => {

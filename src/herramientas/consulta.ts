@@ -2,9 +2,9 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { permisosDeNodeActivos } from '../arranque.ts';
 import { ESTADOS, PRIORIDADES, TIPOS, TIPOS_ITEM } from '../dominio.ts';
-import { ErrorMcp, ok } from '../errores.ts';
+import { ok } from '../errores.ts';
 import { formatearId, idDeRelease } from '../ids.ts';
-import { buscar, estadoDe, filtrar, indexar, leerNotaDelProyecto, ordenPorPrioridad } from '../notas.ts';
+import { buscar, conteoDeNotas, estadoDe, filtrar, indexar, leerNota, ordenPorPrioridad } from '../notas.ts';
 import { NOMBRE, VERSION } from '../version.ts';
 import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
@@ -54,11 +54,7 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
         }
         const { ctx, guardia } = entorno.exigir();
         const indice = await indexar(guardia, ctx.config);
-        const conteos: Record<string, number> = {};
-        for (const n of indice.notas) {
-          const clave = n.tipo === 'tarea' ? `tarea · ${String(n.datos.status ?? 'sin estado')}` : n.tipo;
-          conteos[clave] = (conteos[clave] ?? 0) + 1;
-        }
+        const conteos = conteoDeNotas(indice);
         const texto = [
           `${NOMBRE} ${VERSION} | Node ${process.version} | proyecto ${ctx.config.project_id}: configuración OK | permisos de Node: ${permisos}`,
           `Notas del proyecto: ${indice.notas.length}${indice.truncado ? ' (se alcanzó el tope: el índice está truncado)' : ''}.`,
@@ -109,18 +105,8 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
     },
     async ({ id, ruta }) =>
       ejecutar('nota_leer', async () => {
-        if ((id === undefined) === (ruta === undefined)) {
-          throw new ErrorMcp('ARGUMENTOS', 'Indica id o ruta: uno de los dos.');
-        }
         const { ctx, guardia } = entorno.exigir();
-        let relativa = ruta ?? '';
-        if (id !== undefined) {
-          const indice = await indexar(guardia, ctx.config);
-          const nota = indice.notas.find((n) => n.id === id);
-          if (nota === undefined) throw new ErrorMcp('NOTA_NO_EXISTE', `No hay una nota del proyecto con id ${id}.`);
-          relativa = nota.ruta;
-        }
-        const leida = await leerNotaDelProyecto(guardia, ctx.config, relativa);
+        const leida = await leerNota(guardia, ctx.config, { id, ruta });
         return ok([`ruta: ${leida.ruta}`, `version: ${leida.version}`, AVISO_DATOS, '———', leida.texto].join('\n'));
       }),
   );

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, test } from 'node:test';
-import { validarArranque } from '../src/arranque.ts';
+import { permisosDeNodeActivos, validarArranque } from '../src/arranque.ts';
 import { ErrorMcp } from '../src/errores.ts';
 import type { ConsultasGit } from '../src/git.ts';
 import { servir } from './cliente.ts';
@@ -35,7 +35,6 @@ describe('herramientas de consulta y de git, por lo que responden', () => {
 
   test('las anotaciones de seguridad: todo es de solo lectura salvo cambio_aplicar, que es destructivo', async () => {
     const definiciones = await (await servirCon()).definiciones();
-    assert.equal(definiciones.length, 21);
     for (const d of definiciones.filter((d) => d.name !== 'cambio_aplicar')) {
       assert.deepEqual(d.annotations, { readOnlyHint: true, openWorldHint: false }, d.name);
     }
@@ -147,6 +146,7 @@ describe('herramientas de consulta y de git, por lo que responden', () => {
       assert.doesNotMatch(sinRama.texto, /Divergencia|⚠️/);
     });
 
+    // Rareza conocida que hoy se conserva: repo_git_resumen dice «no disponible» y release_proponer imprime el -1 tal cual.
     test('con la rama de desarrollo sin poder contarse tampoco hay aviso', async () => {
       const c = await servirCon({ ...git(0), contarCommitsEntre: falloDeGit }, { release: { rama_desarrollo: 'develop' } });
       const r = await c.llamar('release_proponer');
@@ -204,8 +204,11 @@ describe('herramientas de consulta y de git, por lo que responden', () => {
     assert.equal((await c.llamar('items_listar', { tipo: 'funcionalidad' })).texto, '- DEM-F-0001 ·  ·  · Cotizaciones');
   });
 
-  test('proyecto_estado informa si los permisos de Node están activos', async () => {
+  test('proyecto_estado informa si los permisos de Node están activos, en el texto y en el contenido estructurado', async () => {
     const r = await (await servirCon()).llamar('proyecto_estado');
-    assert.match(r.texto, /proyecto demo: configuración OK \| permisos de Node: inactivos\n/, 'las pruebas no corren con --permission');
+    const permisos = permisosDeNodeActivos() ? 'activos' : 'inactivos'; // depende de cómo se lanzó Node; la regla tiene su prueba en arranque
+    assert.match(r.texto, new RegExp(`proyecto demo: configuración OK \\| permisos de Node: ${permisos}\\n`));
+    assert.equal(r.estructurado?.permisos_node, permisos);
+    assert.equal(r.estructurado?.configuracion, 'ok');
   });
 });

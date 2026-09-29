@@ -11,6 +11,14 @@ function codigos(estado: EstadoArranque): string[] {
   return estado.ok ? [] : estado.problemas.map((p) => p.codigo);
 }
 
+describe('permisosDeNodeActivos', () => {
+  test('mira las opciones con las que se lanzó Node', () => {
+    assert.equal(permisosDeNodeActivos([]), false);
+    assert.equal(permisosDeNodeActivos(['--allow-fs-read=/x']), false, 'permitir sin --permission no activa nada');
+    assert.equal(permisosDeNodeActivos(['--permission', '--allow-fs-read=/x']), true);
+  });
+});
+
 describe('validarArranque', () => {
   let esc: Escenario;
   const arrancar = () => validarArranque(['--config', esc.rutaConfig], {});
@@ -20,12 +28,6 @@ describe('validarArranque', () => {
   });
   afterEach(async () => {
     await esc.limpiar();
-  });
-
-  test('permisosDeNodeActivos mira las opciones con las que se lanzó Node', () => {
-    assert.equal(permisosDeNodeActivos([]), false);
-    assert.equal(permisosDeNodeActivos(['--allow-fs-read=/x']), false, 'permitir sin --permission no activa nada');
-    assert.equal(permisosDeNodeActivos(['--permission', '--allow-fs-read=/x']), true);
   });
 
   test('una configuración válida arranca', async () => {

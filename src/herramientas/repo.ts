@@ -1,10 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
-import { citarArchivo } from '../fuentes.ts';
-import { esDocHistorico, inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
+import { fuenteRepo } from '../fuentes.ts';
+import { cuentaDeCommits, esDocHistorico, inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
 import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
+
+const AVISO_CAMBIOS = ' (OJO: el archivo tiene cambios sin commitear; el contenido no es el de ese commit)';
 
 export function registrarRepo(server: McpServer, entorno: Entorno): void {
   const v = entorno.vocabulario;
@@ -44,7 +46,7 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
         const conCambios = await ctx.consultasGit.archivoConCambios(relativa);
         return ok(
           [
-            `fuente: ${citarArchivo(relativa, head, conCambios)}`,
+            `fuente: ${fuenteRepo(relativa, head)}${conCambios ? AVISO_CAMBIOS : ''}`,
             AVISO_DATOS,
             '———',
             contenido,
@@ -63,7 +65,6 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
       ejecutar('repo_git_resumen', async () => {
         const { ctx } = entorno.exigir();
         const r = await resumenGit(ctx);
-        const cifra = (n: number): string => (n < 0 ? 'no disponible (falta la rama en el clon local)' : String(n));
         const d = r.divergencia;
         return ok(
           [
@@ -71,8 +72,8 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
             ...(d === null
               ? ['Divergencia entre ramas: no configurada (release.rama_desarrollo).']
               : [
-                  `Commits en ${d.principal} que no están en ${d.desarrollo}: ${cifra(d.principalNoEnDesarrollo)}`,
-                  `Commits en ${d.desarrollo} que no están en ${d.principal}: ${cifra(d.desarrolloNoEnPrincipal)}`,
+                  `Commits en ${d.principal} que no están en ${d.desarrollo}: ${cuentaDeCommits(d.principalNoEnDesarrollo)}`,
+                  `Commits en ${d.desarrollo} que no están en ${d.principal}: ${cuentaDeCommits(d.desarrolloNoEnPrincipal)}`,
                 ]),
             `Tags v*: ${r.tags.length === 0 ? '(ninguno)' : r.tags.join(', ')}`,
             'Son datos del clon local: el MCP no hace fetch. Para datos frescos, haz tú git fetch.',

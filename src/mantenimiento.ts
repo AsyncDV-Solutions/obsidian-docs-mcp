@@ -1,6 +1,6 @@
 import type { Contexto } from './arranque.ts';
 import { ErrorMcp } from './errores.ts';
-import { leerFuenteGit } from './fuentes.ts';
+import { leerFuenteConCommit } from './fuentes.ts';
 import { comoLista } from './notas.ts';
 import type { Indice } from './notas.ts';
 import { excluida, validarRelativaRepo } from './repo.ts';
@@ -18,15 +18,15 @@ export async function notasDesactualizadas(
   let omitidas = 0;
   for (const nota of indice.notas) {
     for (const fuente of comoLista(nota.datos.source)) {
-      const origen = leerFuenteGit(fuente);
-      if (origen === null) continue;
+      const conCommit = leerFuenteConCommit(fuente);
+      if (conCommit === null) continue;
       if (revisadas >= maxFuentes) {
         omitidas++;
         continue;
       }
       let relativa: string;
       try {
-        relativa = validarRelativaRepo(origen.ruta);
+        relativa = validarRelativaRepo(conCommit.ruta);
       } catch {
         omitidas++;
         continue;
@@ -38,7 +38,7 @@ export async function notasDesactualizadas(
       revisadas++;
       let salida: string;
       try {
-        salida = await ctx.consultasGit.ultimoCambioDesde(origen.sha, relativa);
+        salida = await ctx.consultasGit.ultimoCambioDesde(conCommit.sha, relativa);
       } catch (error) {
         if (!(error instanceof ErrorMcp && error.codigo === 'GIT')) throw error; // sin git no se sabe qué quedó atrás
         omitidas++; // el SHA no existe en tu clon local

@@ -1,9 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
+import { PATRON_SHA } from '../fuentes.ts';
 import { indexar } from '../notas.ts';
 import { comandosTag, listaVerificacion, prepararBorradorRelease, proponer } from '../release.ts';
-import { ejecutar, PREPARA, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { ejecutar, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 const LISTA = z.array(z.string().min(1).max(500).regex(UNA_LINEA)).max(50).optional();
@@ -66,13 +67,13 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
         migraciones: LISTA,
         bump: z.enum(['major', 'minor', 'patch', 'linea-base']),
         base_ref: z.string().regex(/^(ninguno|v\d+\.\d+\.\d+)$/),
-        head_ref: z.string().regex(/^[0-9a-f]{7,40}$/),
+        head_ref: z.string().regex(PATRON_SHA),
         release_status: z.enum(['Borrador', 'Lista', 'Publicada']).default('Borrador'),
         promotion_run: z.string().regex(/^\d{1,20}$/).optional().describe('Id del run de CI que publicó el release (opcional); lo aportas tú'),
         fuentes: z.array(z.string().min(3).max(300).regex(UNA_LINEA)).max(20).default([]),
         version_esperada: VERSION_NOTA.optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('release_borrador_guardar', async () => {

@@ -148,6 +148,11 @@ async function recorrer(ctx: Contexto, relativa: string, c: Categoria, rutas: st
 // -1: esa rama no está en el clon local, o git no pudo contarla.
 export type Divergencia = { principal: string; desarrollo: string; principalNoEnDesarrollo: number; desarrolloNoEnPrincipal: number };
 
+// Cómo se dice una cuenta de commits de la divergencia: -1 es «no disponible».
+export function cuentaDeCommits(n: number): string {
+  return n < 0 ? 'no disponible (falta la rama en el clon local)' : String(n);
+}
+
 export type ResumenGit = {
   rama: string;
   head: string;

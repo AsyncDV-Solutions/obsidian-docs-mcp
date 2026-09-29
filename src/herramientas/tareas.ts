@@ -4,9 +4,9 @@ import { aplicarCambio } from '../aplicar.ts';
 import { ESTADOS, PRIORIDADES, RESOLUCIONES } from '../dominio.ts';
 import { ok } from '../errores.ts';
 import { fuenteRepo } from '../fuentes.ts';
-import { indexar } from '../notas.ts';
+import { estadoDe, indexar } from '../notas.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../tareas.ts';
-import { conPedidoPor, ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { conPedidoPor, ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, RELEASE, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 export function registrarTareas(server: McpServer, entorno: Entorno): void {
@@ -32,15 +32,15 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
         motivo: MOTIVO.optional(),
         pedido_por: PEDIDO_POR,
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('tarea_crear', async () => {
         const { ctx, guardia } = entorno.exigir();
         const preparado = await prepararTareaNueva(ctx, guardia, await indexar(guardia, ctx.config), conPedidoPor(ctx, args));
         if ('repetida' in preparado) {
-          const { id, datos, ruta } = preparado.repetida;
-          return ok(`Ya existe ${id} (${String(datos.status)}) con ese título: ${ruta}. No se preparó nada.`);
+          const { id, ruta } = preparado.repetida;
+          return ok(`Ya existe ${id} (${estadoDe(preparado.repetida)}) con ese título: ${ruta}. No se preparó nada.`);
         }
         return respuestaPreparada(preparado);
       }),
@@ -61,7 +61,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
         blocked_by: z.array(ID).max(20).optional(),
         blocked_reason: MOTIVO.optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('tarea_cambiar_estado', async () => {
@@ -91,7 +91,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
         relacionadas: z.array(ID).max(20).optional(),
         criterio_nuevo: z.string().min(1).max(500).regex(UNA_LINEA).optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('tarea_actualizar', async () => {

@@ -27,7 +27,7 @@ La referencia de Obsidian a una nota: nombra su ruta completa dentro del vault y
 _Avoid_: link, wikilink, referencia
 
 **Fuente**:
-La cita de dónde sale lo que dice una nota: un archivo del repo o un documento, con el commit contra el que se revisó.
+De dónde sale lo que dice una nota: un archivo del repo, un documento o una página. Las del repo y las de documento llevan el commit contra el que se revisaron; sin él no se puede saber si quedaron atrás.
 _Avoid_: origen, cita, referencia
 
 **Contadores**:

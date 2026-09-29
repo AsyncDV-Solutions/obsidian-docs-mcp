@@ -89,9 +89,10 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
   const head = await git.resolver(headRef);
   const base = ultimoTag(await git.tagsDeVersion());
   const divergencia = await calcularDivergencia(ctx);
+  const avisos = avisosDeDivergencia(divergencia);
   if (base === null) {
     const motivos = ['No hay tags v*: se propone la línea base v1.0.0 en el próximo release que cumpla la lista de verificación.'];
-    return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia, avisos: avisosDeDivergencia(divergencia) };
+    return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia, avisos };
   }
 
   const commits = await git.commitsEntre(base, head);
@@ -119,7 +120,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
     if (archivos.some((a) => a.startsWith(senal.prefijo)) && !motivos.includes(senal.mensaje)) motivos.push(senal.mensaje);
   }
   if (c.noConvencionales.length > 0) motivos.push(`${c.noConvencionales.length} commit(s) no siguen Conventional Commits: revísalos a mano.`);
-  return { head, base, bump, version: siguienteVersion(base, bump), motivos, clasificacion: c, divergencia, avisos: avisosDeDivergencia(divergencia) };
+  return { head, base, bump, version: siguienteVersion(base, bump), motivos, clasificacion: c, divergencia, avisos };
 }
 
 // ——— Borrador de notas de release ———

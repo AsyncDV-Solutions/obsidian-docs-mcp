@@ -4,6 +4,7 @@ import { crearServidor } from '../src/servidor.ts';
 
 export type Respuesta = {
   texto: string;
+  estructurado: Record<string, unknown> | undefined; // structuredContent, si la herramienta lo entrega
   error: boolean; // isError: un error de la herramienta o una entrada que rompe el esquema
 };
 
@@ -16,7 +17,11 @@ export type Cliente = {
   cerrar(): Promise<void>;
 };
 
-type Mensaje = { id?: number; result?: { tools?: Definicion[]; content?: { text: string }[]; isError?: boolean }; error?: { message: string } };
+type Mensaje = {
+  id?: number;
+  result?: { tools?: Definicion[]; content?: { text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean };
+  error?: { message: string };
+};
 
 const PLAZO_MS = 5000;
 
@@ -61,19 +66,17 @@ export async function servir(estado: EstadoArranque): Promise<Cliente> {
   if (inicio.error !== undefined) throw new Error(`initialize falló: ${inicio.error.message}`);
   await enviar({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
+  const definiciones = async (): Promise<Definicion[]> => (await pedir('tools/list', {})).result?.tools ?? [];
+
   return {
-    async definiciones() {
-      const r = await pedir('tools/list', {});
-      return r.result?.tools ?? [];
-    },
+    definiciones,
     async herramientas() {
-      const r = await pedir('tools/list', {});
-      return (r.result?.tools ?? []).map((h) => h.name).sort();
+      return (await definiciones()).map((h) => h.name).sort();
     },
     async llamar(nombre, args = {}) {
       const r = await pedir('tools/call', { name: nombre, arguments: args });
-      if (r.error !== undefined) return { texto: r.error.message, error: true };
-      return { texto: (r.result?.content ?? []).map((c) => c.text).join('\n'), error: r.result?.isError === true };
+      if (r.error !== undefined) return { texto: r.error.message, estructurado: undefined, error: true };
+      return { texto: (r.result?.content ?? []).map((c) => c.text).join('\n'), estructurado: r.result?.structuredContent, error: r.result?.isError === true };
     },
     async cerrar() {
       await lado.close();
