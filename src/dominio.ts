@@ -32,6 +32,31 @@ export function normalizar(texto: string): string {
   return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+// ——— Texto libre ———
+
+// El texto libre es todo lo que aporta el modelo y termina escrito en una nota. Cada cadena tiene un
+// tope de tamaño (en bytes) y no puede llevar marcadores de bloque gestionado: con ellos, el texto
+// podría cerrar un bloque antes de tiempo o abrir otro. Devuelve una copia con las cadenas recortadas
+// y nombra el campo en el error (p. ej. «secciones.corregido[1]»). No toca lo que no es texto.
+export function limpiarTextoLibre<T>(valor: T, maxKb: number, campo = ''): T {
+  if (typeof valor === 'string') {
+    if (Buffer.byteLength(valor, 'utf8') > maxKb * 1024) {
+      throw new ErrorMcp('CAMPO_GRANDE', `«${campo}» supera los ${maxKb} KB.`);
+    }
+    if (valor.includes('%% asyncdv:')) {
+      throw new ErrorMcp('CAMPO_INVALIDO', `«${campo}» no puede contener marcadores «%% asyncdv:».`);
+    }
+    return valor.trim() as T;
+  }
+  if (Array.isArray(valor)) return valor.map((v, i) => limpiarTextoLibre(v, maxKb, `${campo}[${i}]`)) as T;
+  if (typeof valor === 'object' && valor !== null) {
+    const limpio: Record<string, unknown> = {};
+    for (const [clave, v] of Object.entries(valor)) limpio[clave] = limpiarTextoLibre(v, maxKb, campo === '' ? clave : `${campo}.${clave}`);
+    return limpio as T;
+  }
+  return valor;
+}
+
 // ——— Nombres de archivo, fechas y transiciones ———
 
 // Apto para nombres de archivo: ASCII, minúsculas, sin tildes, con guiones y hasta 60 caracteres.

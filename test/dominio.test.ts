@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { agregarCriterio, ahora, criteriosPendientes, problemasDeTransicion, slug } from '../src/dominio.ts';
+import { agregarCriterio, ahora, criteriosPendientes, limpiarTextoLibre, problemasDeTransicion, slug } from '../src/dominio.ts';
 import type { PedidoTransicion } from '../src/dominio.ts';
 
 describe('dominio', () => {
@@ -41,5 +41,48 @@ describe('dominio', () => {
     const nuevo = agregarCriterio(cuerpo, 'tres', '\n');
     assert.equal(criteriosPendientes(nuevo), 2);
     assert.ok(nuevo.includes('- [ ] dos\n- [ ] tres\n\n## Notas'));
+  });
+
+  describe('limpiarTextoLibre', () => {
+    test('recorta cada cadena, recorre arreglos y objetos anidados y no toca lo que no es texto', () => {
+      const entrada = {
+        titulo: '  Encender el correo \n',
+        criterios: [' uno', 'dos  '],
+        secciones: { corregido: ['  un bug  '] },
+        afirmaciones: [{ afirmacion: ' a ', evidencia: 'propuesto' }],
+        prioridad: 3,
+        activo: true,
+        sin: null,
+        falta: undefined,
+      };
+      assert.deepEqual(limpiarTextoLibre(entrada, 64), {
+        titulo: 'Encender el correo',
+        criterios: ['uno', 'dos'],
+        secciones: { corregido: ['un bug'] },
+        afirmaciones: [{ afirmacion: 'a', evidencia: 'propuesto' }],
+        prioridad: 3,
+        activo: true,
+        sin: null,
+        falta: undefined,
+      });
+      assert.equal(entrada.titulo, '  Encender el correo \n', 'la entrada no se muta');
+    });
+
+    test('rechaza los marcadores de bloque gestionado y nombra el campo', () => {
+      assert.throws(() => limpiarTextoLibre({ descripcion: 'hola %% asyncdv:fin %%' }, 64), {
+        codigo: 'CAMPO_INVALIDO',
+        message: '«descripcion» no puede contener marcadores «%% asyncdv:».',
+      });
+      assert.throws(() => limpiarTextoLibre({ secciones: { corregido: ['ok', '%% asyncdv:inicio x %%'] } }, 64), {
+        codigo: 'CAMPO_INVALIDO',
+        message: '«secciones.corregido[1]» no puede contener marcadores «%% asyncdv:».',
+      });
+    });
+
+    test('rechaza lo que supera el tope en bytes, no en caracteres', () => {
+      assert.throws(() => limpiarTextoLibre({ pasos: 'a'.repeat(1025) }, 1), { codigo: 'CAMPO_GRANDE', message: '«pasos» supera los 1 KB.' });
+      assert.throws(() => limpiarTextoLibre({ pasos: 'ñ'.repeat(513) }, 1), { codigo: 'CAMPO_GRANDE' }, 'cada ñ pesa 2 bytes');
+      assert.deepEqual(limpiarTextoLibre({ pasos: 'a'.repeat(1024) }, 1), { pasos: 'a'.repeat(1024) });
+    });
   });
 });
