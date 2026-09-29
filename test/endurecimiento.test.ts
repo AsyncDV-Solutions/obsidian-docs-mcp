@@ -28,10 +28,54 @@ describe('endurecimiento', () => {
     }
   });
 
-  test('solo repo.ts lanza procesos', async () => {
+  // Los comentarios pueden hablar de git y de procesos: solo cuenta el código.
+  const sinComentarios = (texto: string): string => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  // Los únicos que importan escritura.ts: aplicar (por el escritor de la sesión), la sesión (que lo trae) e iniciar.
+  const IMPORTAN_ESCRITURA = ['aplicar.ts', 'iniciar.ts', 'sesion.ts'];
+
+  test('solo git.ts lanza procesos', async () => {
     for (const archivo of await archivosTs(SRC)) {
-      if (path.basename(archivo) === 'repo.ts') continue;
-      assert.doesNotMatch(await readFile(archivo, 'utf8'), /node:child_process/, archivo);
+      if (path.basename(archivo) === 'git.ts') continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), /child_process|\brequire\(|\bimport\(/, archivo);
+    }
+  });
+
+  // git es un puerto, ConsultasGit: nadie fuera de git.ts arma un comando de git. Lo que git.ts ofrece hacia
+  // afuera es una lista cerrada: un ejecutor de comandos exportado, con el nombre que sea, la rompe. La prueba vigila
+  // las formas habituales; no puede demostrar que nadie interprete la salida de git por otro camino.
+  test('nadie fuera de git.ts arma comandos de git y git.ts no exporta su ejecutor', async () => {
+    const comandos = /--end-of-options|--porcelain|\bexecFile\b|salidasValidas|\[\s*'(?:rev-parse|log|grep|tag|diff|ls-files)'/;
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.basename(archivo) === 'git.ts') continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), comandos, archivo);
+    }
+    const exportado = sinComentarios(await readFile(path.join(SRC, 'git.ts'), 'utf8'));
+    assert.doesNotMatch(exportado, /^export \{/m, 'git.ts exporta por nombre');
+    const nombres = [...exportado.matchAll(/^export (?:async )?(?:function|const|type|interface|class) (\w+)/gm)].map((m) => m[1]).sort();
+    assert.deepEqual(nombres, ['Commit', 'ConsultasGit', 'OpcionesGit', 'PATRON_REF', 'crearConsultasGit', 'salidaAceptada', 'validarRef']);
+  });
+  // Qué es una referencia de git (una rama, un tag, un SHA) lo dice git.ts, que las valida antes de lanzar nada: la
+  // configuración de las ramas usa su patrón en vez de escribir otro. Vigila la forma habitual de repetirlo.
+  test('solo git.ts define qué es una referencia de git', async () => {
+    const patron = /\(\?!\.\*\\\.\\\.\)/; // el «sin ..» del patrón
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.basename(archivo) === 'git.ts') continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), patron, archivo);
+    }
+  });
+
+  // Solo aplicar.ts (por el escritor de la sesión), sesion.ts (que lo trae) e iniciar.ts (que crea las notas del
+  // sistema al preparar el proyecto, fuera de los cambios preparados) importan escritura.ts.
+  test('solo aplicar.ts, sesion.ts e iniciar.ts importan escritura.ts', async () => {
+    const permitidos = ['escritura.ts', ...IMPORTAN_ESCRITURA];
+    for (const archivo of await archivosTs(SRC)) {
+      const nombre = path.relative(SRC, archivo);
+      if (permitidos.includes(nombre)) continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), /from '(?:\.\.?\/)+escritura\.ts'/, `${nombre} importa escritura.ts`);
+    }
+    for (const nombre of IMPORTAN_ESCRITURA) {
+      assert.match(sinComentarios(await readFile(path.join(SRC, nombre), 'utf8')), /from '\.\/escritura\.ts'/, `${nombre} debería importar escritura.ts`);
     }
   });
 
@@ -47,6 +91,63 @@ describe('endurecimiento', () => {
         const retorno = parte.search(/\breturn\b/);
         assert.ok(llamada >= 0 && (retorno < 0 || llamada < retorno), `${archivo}: ${parte.slice(0, parte.indexOf('('))} debe llamar a limpiarTextoLibre antes de su primer return`);
       }
+    }
+  });
+
+  // La sesión es lo que reciben los preparadores, aplicar y las herramientas: el guardia lo construye solo el arranque,
+  // y el almacén de códigos y el tope de escrituras, solo la sesión. Así una prueba puede crear la suya con reloj de
+  // mentira, y nadie tiene un segundo almacén con otros códigos. La prueba vigila las formas habituales.
+  test('solo arranque.ts construye el guardia y solo sesion.ts el almacén y el tope', async () => {
+    const reglas: { patron: RegExp; permitidos: string[] }[] = [
+      { patron: /\bcrearGuardia\(/, permitidos: ['arranque.ts', 'guardia.ts'] },
+      { patron: /\b(?:crearAlmacen|crearTope)\(/, permitidos: ['sesion.ts', 'almacen.ts'] },
+    ];
+    for (const archivo of await archivosTs(SRC)) {
+      const texto = sinComentarios(await readFile(archivo, 'utf8'));
+      for (const { patron, permitidos } of reglas) {
+        if (permitidos.includes(path.relative(SRC, archivo))) continue;
+        assert.doesNotMatch(texto, patron, archivo);
+      }
+    }
+  });
+
+  // El escritor de escritura.ts solo se llama por el de la sesión, y el de verdad solo lo pone la sesión: así una
+  // prueba puede poner uno de mentira. La excepción es iniciar.ts, que crea las notas del sistema al preparar el
+  // proyecto, sin sesión, con crearExclusivo. Vigila las formas habituales.
+  test('nadie llama al escritor de escritura.ts sin pasar por la sesión, salvo iniciar, y aplicar lo usa', async () => {
+    for (const archivo of await archivosTs(SRC)) {
+      const nombre = path.relative(SRC, archivo);
+      const texto = sinComentarios(await readFile(archivo, 'utf8'));
+      if (nombre === 'iniciar.ts') assert.doesNotMatch(texto, /\breemplazarAtomico\(/, 'iniciar solo crea notas nuevas: no reemplaza ninguna');
+      else if (nombre !== 'escritura.ts') assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, `${nombre} llama al escritor sin pasar por la sesión`);
+      if (nombre !== 'escritura.ts' && nombre !== 'sesion.ts') assert.doesNotMatch(texto, /\bescritorReal\b/, `${nombre} usa el escritor de verdad`);
+    }
+    const aplicarTs = sinComentarios(await readFile(path.join(SRC, 'aplicar.ts'), 'utf8'));
+    assert.match(aplicarTs, /sesion\.escritor\.crearExclusivo\(/);
+    assert.match(aplicarTs, /sesion\.escritor\.reemplazarAtomico\(/);
+    assert.match(sinComentarios(await readFile(path.join(SRC, 'iniciar.ts'), 'utf8')), /\bcrearExclusivo\(/, 'iniciar crea las notas del sistema con crearExclusivo');
+  });
+
+  // Una fuente con commit, «repo:<ruta>@<sha>», la escribe y la lee fuentes.ts, y el patrón del SHA es suyo. La prueba
+  // vigila las formas habituales de escribirla, de leerla o de validar su SHA a mano en otro archivo, con plantillas,
+  // con concatenación o con startsWith; no puede demostrar que nadie interprete una fuente por otro camino. Un texto
+  // de documentación, como «repo:<ruta>@<sha>» en la descripción de una herramienta, no cuenta.
+  test('solo fuentes.ts escribe y lee las fuentes con commit', async () => {
+    const fuente = /(?:repo|doc):\$\{|\$\{[^}]*\}:\$\{[^}]*\}@|['"`](?:repo|doc):['"`]\s*\+|startsWith\(['"`](?:repo|doc):|\(\?:repo\|doc\)|\(repo\|doc\)|\[0-9a-f\]\{7,40\}/;
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.relative(SRC, archivo) === 'fuentes.ts') continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), fuente, archivo);
+    }
+  });
+
+  // El formato de un id lo define ids.ts: el índice, el tablero, iniciar, la configuración y los esquemas de
+  // las herramientas lo derivan de ahí. Un patrón escrito a mano en otro archivo se desincroniza al agregar un tipo.
+  // La prueba vigila las formas habituales de reescribirlo; no puede demostrar que nadie lo haga de otra manera.
+  test('solo ids.ts define el formato de los ids', async () => {
+    const formato = /\\d\{4,\}|\(T\|F\|I\|ADR\|G\)|R-v\\+d|R-v\$\{|\[A-Z\]\{2,5\}|padStart\(4|ultimo_|\$\{[^}]*\}-(?:T|F|I|G|ADR|R)-|\[\[\$\{/;
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.basename(archivo) === 'ids.ts') continue;
+      assert.doesNotMatch(await readFile(archivo, 'utf8'), formato, archivo);
     }
   });
 

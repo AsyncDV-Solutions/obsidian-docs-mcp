@@ -1,27 +1,20 @@
 import type { Contexto } from './arranque.ts';
+import type { Sesion } from './sesion.ts';
 import { regenerarBloque } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
 import { ESTADOS } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
-import type { Guardia } from './guardia.ts';
-import { comoLista, enlace, ordenPorPrioridad } from './notas.ts';
+import { enlace, idDeEnlace } from './ids.ts';
+import { comoLista, ordenPorPrioridad } from './notas.ts';
 import type { Indice, Nota } from './notas.ts';
 
 export const RUTA_TABLERO = 'Tablero.md';
-
-// Id al que apunta un enlace [[…/ID-slug|alias]] (o el texto tal cual, si no es un enlace).
-function idDeEnlace(valor: string): string {
-  const destino = /^\[\[([^|\]]+)/.exec(valor)?.[1];
-  if (destino === undefined) return valor;
-  const nombre = destino.split('/').at(-1) ?? '';
-  return /^(?:[A-Z]{2,5}-(?:T|F|I|ADR|G)-\d{4,}|[A-Z]{2,5}-R-v\d+\.\d+\.\d+)/.exec(nombre)?.[0] ?? nombre;
-}
 
 // Contenido del bloque «tablero». No lleva fecha: así, regenerar un tablero igual no cambia nada.
 export function generarTablero(ctx: Contexto, indice: Indice): string {
   const items = indice.notas.filter((n) => n.tipo === 'tarea' || n.tipo === 'incidencia').sort(ordenPorPrioridad);
   const porId = new Map(indice.notas.map((n) => [n.id, n] as const)); // "as const": un par [clave, valor], no un arreglo cualquiera
-  const linea = (n: Nota): string => `- ${enlace(ctx, n.ruta, n.id)} · ${String(n.datos.priority ?? '—')} · ${n.titulo}`;
+  const linea = (n: Nota): string => `- ${enlace(ctx.config.project_dir, n.ruta, n.id)} · ${String(n.datos.priority ?? '—')} · ${n.titulo}`;
   const salida: string[] = [`_${items.length} ítems entre tareas e incidencias._`, ''];
 
   for (const estado of ESTADOS) {
@@ -36,7 +29,7 @@ export function generarTablero(ctx: Contexto, indice: Indice): string {
       .map(idDeEnlace)
       .map((id) => `${id} (${String(porId.get(id)?.datos.status ?? 'no existe')})`);
     const motivo = typeof n.datos.blocked_reason === 'string' ? ` · motivo: ${n.datos.blocked_reason}` : '';
-    salida.push(`- ${enlace(ctx, n.ruta, n.id)} · bloqueada por: ${dependencias.join(', ') || '—'}${motivo}`);
+    salida.push(`- ${enlace(ctx.config.project_dir, n.ruta, n.id)} · bloqueada por: ${dependencias.join(', ') || '—'}${motivo}`);
   }
   salida.push('', '### Por release');
 
@@ -55,9 +48,9 @@ export function generarTablero(ctx: Contexto, indice: Indice): string {
 }
 
 // Prepara el reemplazo del bloque «tablero». Devuelve null si ya está al día.
-export async function prepararTablero(ctx: Contexto, guardia: Guardia, indice: Indice): Promise<Preparado | null> {
+export async function prepararTablero(sesion: Sesion): Promise<Preparado | null> {
   try {
-    return await regenerarBloque(ctx, guardia, RUTA_TABLERO, 'tablero', generarTablero(ctx, indice));
+    return await regenerarBloque(sesion, RUTA_TABLERO, 'tablero', generarTablero(sesion, await sesion.indice()));
   } catch (error) {
     if (error instanceof ErrorMcp && error.codigo === 'NOTA_NO_EXISTE') {
       throw new ErrorMcp('TABLERO_FALTA', `Falta ${RUTA_TABLERO}: créalo con «pnpm run iniciar».`);

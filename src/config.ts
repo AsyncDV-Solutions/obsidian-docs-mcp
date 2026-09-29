@@ -4,6 +4,8 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import * as z from 'zod/v4';
 import { ErrorMcp } from './errores.ts';
+import { PATRON_REF } from './git.ts';
+import { PATRON_PREFIJO } from './ids.ts';
 
 // Prefijo de las variables de entorno: ASYNCDV_DOCS_<CLAVE EN MAYÚSCULAS> (p. ej. ASYNCDV_DOCS_VAULT_PATH).
 export const PREFIJO_ENTORNO = 'ASYNCDV_DOCS_';
@@ -65,7 +67,7 @@ const Patron = z
   .max(200)
   .refine((p) => !/[\\\x00-\x1f]/.test(p) && !p.startsWith('/'), 'debe ser relativo a la raíz del repo, separado con "/"');
 
-const Ref = z.string().regex(/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/, 'no es un nombre de rama válido');
+const Ref = z.string().regex(PATRON_REF, 'no es un nombre de rama válido');
 const Lista = z.array(z.string().min(1).max(40).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'solo minúsculas, dígitos y guiones'));
 
 function zonaValida(zona: string): boolean {
@@ -209,7 +211,7 @@ export const EsquemaConfig = z.strictObject({
   // Nombre legible; por defecto, project_id. Va dentro del comando git tag que copias a tu terminal:
   // sin comillas, $, ` ni \, para que pegarlo nunca ejecute nada.
   project_name: z.string().min(1).max(80).regex(/^[^\r\n"`$\\]*$/, 'sin saltos de línea, comillas dobles, $, ` ni \\').optional(),
-  id_prefix: z.string().regex(/^[A-Z]{2,5}$/, 'de 2 a 5 letras mayúsculas'),
+  id_prefix: z.string().regex(PATRON_PREFIJO, 'de 2 a 5 letras mayúsculas'),
   repo_path: RutaAbsoluta,
   vault_path: RutaAbsoluta,
   project_dir: RutaProyecto,

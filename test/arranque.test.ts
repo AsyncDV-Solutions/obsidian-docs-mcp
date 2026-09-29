@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
-import { validarArranque } from '../src/arranque.ts';
+import { NODE_MINIMO, permisosDeNodeActivos, validarArranque } from '../src/arranque.ts';
 import type { EstadoArranque } from '../src/arranque.ts';
 import { crearEscenario, marcador } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
@@ -10,6 +10,14 @@ import type { Escenario } from './helpers.ts';
 function codigos(estado: EstadoArranque): string[] {
   return estado.ok ? [] : estado.problemas.map((p) => p.codigo);
 }
+
+describe('permisosDeNodeActivos', () => {
+  test('mira las opciones con las que se lanzó Node', () => {
+    assert.equal(permisosDeNodeActivos([]), false);
+    assert.equal(permisosDeNodeActivos(['--allow-fs-read=/x']), false, 'permitir sin --permission no activa nada');
+    assert.equal(permisosDeNodeActivos(['--permission', '--allow-fs-read=/x']), true);
+  });
+});
 
 describe('validarArranque', () => {
   let esc: Escenario;
@@ -99,11 +107,20 @@ describe('validarArranque', () => {
       { repo: { categorias: [{ clave: 'x', descripcion: 'X', archivos: ['../fuera.md'] }] } },
       { repo: { excluir: ['/absoluto/**'] } },
       { release: { rama_desarrollo: '--output=x' } },
+      { release: { rama_principal: '-x' } },
+      { release: { rama_principal: 'a..b' } },
+      { release: { rama_principal: 'a'.repeat(101) } },
+      { release: { rama_desarrollo: 'con espacio' } },
     ];
     for (const cambios of casos) {
       await esc.escribirConfig(cambios);
       assert.deepEqual(codigos(await arrancar()), ['CONFIG_ESQUEMA'], JSON.stringify(cambios));
     }
+  });
+
+  test('las ramas aceptan letras, dígitos y . _ / -', async () => {
+    await esc.escribirConfig({ release: { rama_principal: 'release/v1.2_x-3', rama_desarrollo: 'feature/nueva' } });
+    assert.deepEqual(codigos(await arrancar()), []);
   });
 
   test('plantillas_dir: una plantilla propia que calza se usa; una que no calza se rechaza', async () => {
@@ -136,6 +153,21 @@ describe('validarArranque', () => {
     await mkdir(dentro);
     await esc.escribirConfig({ plantillas_dir: dentro });
     assert.deepEqual(codigos(await arrancar()), ['PLANTILLAS_DENTRO']);
+  });
+
+  test('plantillas_dir: una plantilla que es un enlace se rechaza', async (t) => {
+    const dir = path.join(esc.base, 'plantillas');
+    await mkdir(dir);
+    const real = path.join(esc.base, 'real.md');
+    await writeFile(real, await readFile(new URL('../plantillas/tarea.md', import.meta.url), 'utf8'), 'utf8');
+    try {
+      await symlink(real, path.join(dir, 'tarea.md'), 'file');
+    } catch {
+      t.skip('No ejecutada: este sistema no permite crear symlinks sin privilegios');
+      return;
+    }
+    await esc.escribirConfig({ plantillas_dir: dir });
+    assert.deepEqual(codigos(await arrancar()), ['PLANTILLA_ENLACE']);
   });
 
   test('config.json no existe', async () => {
@@ -200,6 +232,43 @@ describe('validarArranque', () => {
   test('project_id con otra capitalización también es ajeno', async () => {
     await writeFile(path.join(esc.proyecto, '_proyecto.md'), marcador('Demo'), 'utf8');
     assert.deepEqual(codigos(await arrancar()), ['MARCADOR_AJENO']);
+  });
+
+  test('un marcador sin la forma esperada se rechaza', async () => {
+    await writeFile(path.join(esc.proyecto, '_proyecto.md'), '---\nproject_id: demo\ntype: otro\n---\nNo es el marcador.\n', 'utf8');
+    assert.deepEqual(codigos(await arrancar()), ['MARCADOR_INVALIDO']);
+  });
+
+  test('un marcador con otro id_prefix se rechaza', async () => {
+    await writeFile(path.join(esc.proyecto, '_proyecto.md'), marcador('demo', 'OTR'), 'utf8');
+    assert.deepEqual(codigos(await arrancar()), ['MARCADOR_PREFIJO']);
+  });
+
+  test('una versión de Node anterior a la mínima se rechaza y la mínima se acepta', async () => {
+    const vieja = `${NODE_MINIMO - 1}.11.0`;
+    const rechazada = await validarArranque(['--config', esc.rutaConfig], {}, vieja);
+    assert.deepEqual(codigos(rechazada), ['NODE_VERSION']);
+    assert.ok(!rechazada.ok);
+    assert.equal(rechazada.problemas[0]?.mensaje, `Se requiere Node ${NODE_MINIMO} o posterior y este proceso usa v${vieja}.`);
+    assert.deepEqual(codigos(await validarArranque(['--config', esc.rutaConfig], {}, `${NODE_MINIMO}.0.0`)), []);
+  });
+
+  test('sin state_dir ni config.json, una carpeta de estado derivada de una variable relativa se rechaza', async (t) => {
+    if (process.platform === 'darwin') {
+      t.skip('En macOS la carpeta de estado sale de la carpeta personal, no del entorno');
+      return;
+    }
+    const estado = await validarArranque([], {
+      ASYNCDV_DOCS_PROJECT_ID: 'demo',
+      ASYNCDV_DOCS_ID_PREFIX: 'DEM',
+      ASYNCDV_DOCS_REPO_PATH: esc.repo,
+      ASYNCDV_DOCS_VAULT_PATH: esc.vault,
+      ASYNCDV_DOCS_PROJECT_DIR: 'Proyectos/demo',
+      ASYNCDV_DOCS_ZONA_HORARIA: 'UTC',
+      APPDATA: 'relativa',
+      XDG_STATE_HOME: 'relativa',
+    });
+    assert.deepEqual(codigos(estado), ['ESTADO_RUTA']);
   });
 
   test('un marcador con BOM y CRLF se acepta', async () => {

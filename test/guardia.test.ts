@@ -4,23 +4,14 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { crearGuardia, validarRelativa } from '../src/guardia.ts';
 import type { Guardia } from '../src/guardia.ts';
-import { crearEscenario } from './helpers.ts';
+import { codigoDe, crearEscenario } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
 const LIMITES = { nota_max_kb: 1, notas_max: 100 }; // 1 KB: el tope se prueba fácil
 
-function codigoDe(fn: () => unknown): string {
+function codigoDeLlamada(fn: () => unknown): string {
   try {
     fn();
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
-
-async function codigoDeAsync(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
     return 'OK';
   } catch (error) {
     return (error as { codigo?: string }).codigo ?? 'OTRO';
@@ -49,7 +40,7 @@ describe('validarRelativa', () => {
   ];
   for (const [ruta, esperado] of casos) {
     test(`${JSON.stringify(ruta)} → ${esperado}`, () => {
-      assert.equal(codigoDe(() => validarRelativa(ruta)), esperado);
+      assert.equal(codigoDeLlamada(() => validarRelativa(ruta)), esperado);
     });
   }
 });
@@ -79,14 +70,14 @@ describe('crearGuardia', () => {
 
   test('no sigue una junction hacia afuera', async () => {
     await symlink(afuera, path.join(esc.proyecto, 'Enlace'), 'junction');
-    assert.equal(await codigoDeAsync(g.leer('Enlace/secreto.md')), 'RUTA_ENLACE');
+    assert.equal(await codigoDe(g.leer('Enlace/secreto.md')), 'RUTA_ENLACE');
     const { rutas } = await g.listar();
     assert.ok(!rutas.some((r) => r.startsWith('Enlace')), 'listar entró en la junction');
   });
 
   test('rechaza un archivo con dos nombres (enlace duro)', async () => {
     await link(path.join(esc.proyecto, 'nota.md'), path.join(esc.proyecto, 'copia.md'));
-    assert.equal(await codigoDeAsync(g.leer('nota.md')), 'RUTA_ENLACE_DURO');
+    assert.equal(await codigoDe(g.leer('nota.md')), 'RUTA_ENLACE_DURO');
   });
 
   test('rechaza un symlink de archivo (si Windows permite crearlo)', async (t) => {
@@ -96,12 +87,12 @@ describe('crearGuardia', () => {
       t.skip('No ejecutada: este Windows no permite crear symlinks sin privilegios');
       return;
     }
-    assert.equal(await codigoDeAsync(g.leer('s.md')), 'RUTA_ENLACE');
+    assert.equal(await codigoDe(g.leer('s.md')), 'RUTA_ENLACE');
   });
 
   test('respeta el tamaño máximo', async () => {
     await writeFile(path.join(esc.proyecto, 'grande.md'), 'x'.repeat(2048), 'utf8');
-    assert.equal(await codigoDeAsync(g.leer('grande.md')), 'NOTA_GRANDE');
+    assert.equal(await codigoDe(g.leer('grande.md')), 'NOTA_GRANDE');
   });
 
   test('listar ignora ocultos y lo que no es .md', async () => {
@@ -113,13 +104,13 @@ describe('crearGuardia', () => {
   });
 
   test('rutaParaEscribir exige que la carpeta exista', async () => {
-    assert.equal(await codigoDeAsync(g.rutaParaEscribir('Tareas/nueva.md')), 'CARPETA_NO_EXISTE');
+    assert.equal(await codigoDe(g.rutaParaEscribir('Tareas/nueva.md')), 'CARPETA_NO_EXISTE');
     await mkdir(path.join(esc.proyecto, 'Tareas'));
-    assert.equal(await codigoDeAsync(g.rutaParaEscribir('Tareas/nueva.md')), 'OK');
+    assert.equal(await codigoDe(g.rutaParaEscribir('Tareas/nueva.md')), 'OK');
   });
 
   test('rutaParaEscribir rechaza una carpeta que es junction', async () => {
     await symlink(afuera, path.join(esc.proyecto, 'Enlace'), 'junction');
-    assert.equal(await codigoDeAsync(g.rutaParaEscribir('Enlace/nueva.md')), 'RUTA_ENLACE');
+    assert.equal(await codigoDe(g.rutaParaEscribir('Enlace/nueva.md')), 'RUTA_ENLACE');
   });
 });

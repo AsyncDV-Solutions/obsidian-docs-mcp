@@ -1,11 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
-import { git, inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
-import { AVISO_DATOS, ejecutar } from './comun.ts';
+import { fuenteRepo } from '../fuentes.ts';
+import { cuentaDeCommits, esDocHistorico, inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
+import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
-const SOLO_LECTURA = { readOnlyHint: true, openWorldHint: false };
+const AVISO_CAMBIOS = ' (OJO: el archivo tiene cambios sin commitear; el contenido no es el de ese commit)';
 
 export function registrarRepo(server: McpServer, entorno: Entorno): void {
   const v = entorno.vocabulario;
@@ -18,14 +19,12 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
     },
     async ({ categoria }) =>
       ejecutar('repo_inventario', async () => {
-        const { ctx } = entorno.exigir();
-        const historicos = ctx.config.docs_historicos;
-        const esHistorico = (ruta: string): boolean => historicos.some((h) => (h.endsWith('*') ? ruta.startsWith(h.slice(0, -1)) : ruta === h));
-        const grupos = (await inventario(ctx)).filter((g) => categoria === undefined || g.categoria === categoria);
-        const head = (await git(ctx, ['rev-parse', '--short', 'HEAD'])).trim();
+        const sesion = entorno.exigir();
+        const grupos = (await inventario(sesion)).filter((g) => categoria === undefined || g.categoria === categoria);
+        const head = await sesion.consultasGit.cabezaCorta();
         const lineas = [`Repo de ${v.nombre} @ ${head} (clon local, sin fetch).`];
         for (const g of grupos) {
-          lineas.push('', `${g.descripcion} (${g.rutas.length}):`, ...g.rutas.map((r) => `- ${r}${esHistorico(r) ? ' (histórico: preferir el código)' : ''}`));
+          lineas.push('', `${g.descripcion} (${g.rutas.length}):`, ...g.rutas.map((r) => `- ${r}${esDocHistorico(sesion, r) ? ' (histórico: preferir el código)' : ''}`));
         }
         return ok(lineas.join('\n'));
       }),
@@ -40,14 +39,14 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
     },
     async ({ ruta }) =>
       ejecutar('repo_archivo_leer', async () => {
-        const { ctx } = entorno.exigir();
-        const contenido = await leerArchivoRepo(ctx, ruta);
+        const sesion = entorno.exigir();
+        const contenido = await leerArchivoRepo(sesion, ruta);
         const relativa = validarRelativaRepo(ruta);
-        const head = (await git(ctx, ['rev-parse', '--short', 'HEAD'])).trim();
-        const conCambios = (await git(ctx, ['status', '--porcelain=v1', '--', relativa])).trim() !== '';
+        const head = await sesion.consultasGit.cabezaCorta();
+        const conCambios = await sesion.consultasGit.archivoConCambios(relativa);
         return ok(
           [
-            `fuente: repo:${relativa}@${head}${conCambios ? ' (OJO: el archivo tiene cambios sin commitear; el contenido no es el de ese commit)' : ''}`,
+            `fuente: ${fuenteRepo(relativa, head)}${conCambios ? AVISO_CAMBIOS : ''}`,
             AVISO_DATOS,
             '———',
             contenido,
@@ -64,9 +63,8 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
     },
     async () =>
       ejecutar('repo_git_resumen', async () => {
-        const { ctx } = entorno.exigir();
-        const r = await resumenGit(ctx);
-        const cifra = (n: number): string => (n < 0 ? 'no disponible (falta la rama en el clon local)' : String(n));
+        const sesion = entorno.exigir();
+        const r = await resumenGit(sesion);
         const d = r.divergencia;
         return ok(
           [
@@ -74,8 +72,8 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
             ...(d === null
               ? ['Divergencia entre ramas: no configurada (release.rama_desarrollo).']
               : [
-                  `Commits en ${d.principal} que no están en ${d.desarrollo}: ${cifra(d.principalNoEnDesarrollo)}`,
-                  `Commits en ${d.desarrollo} que no están en ${d.principal}: ${cifra(d.desarrolloNoEnPrincipal)}`,
+                  `Commits en ${d.principal} que no están en ${d.desarrollo}: ${cuentaDeCommits(d.principalNoEnDesarrollo)}`,
+                  `Commits en ${d.desarrollo} que no están en ${d.principal}: ${cuentaDeCommits(d.desarrolloNoEnPrincipal)}`,
                 ]),
             `Tags v*: ${r.tags.length === 0 ? '(ninguno)' : r.tags.join(', ')}`,
             'Son datos del clon local: el MCP no hace fetch. Para datos frescos, haz tú git fetch.',

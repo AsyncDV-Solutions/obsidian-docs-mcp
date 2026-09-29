@@ -1,31 +1,14 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
-import { git, inventario, leerArchivoRepo, patronARegex, resumenGit, validarRef } from '../src/repo.ts';
-import { commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
+import { ErrorMcp } from '../src/errores.ts';
+import { divergencia, esDocHistorico, inventario, leerArchivoRepo, patronARegex, resumenGit } from '../src/repo.ts';
+import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-
-async function existe(ruta: string): Promise<boolean> {
-  try {
-    await access(ruta);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
+import { consultasGitFalsas, falloDeGit } from './consultas-git-falsas.ts';
 
 describe('repo en solo lectura', () => {
   let esc: Escenario;
@@ -53,8 +36,23 @@ describe('repo en solo lectura', () => {
     await esc.limpiar();
   });
 
+  test('esDocHistorico: una ruta exacta, un prefijo con «*» al final y nada más', async () => {
+    await esc.escribirConfig({ git_path: rutaGit(), docs_historicos: ['docs/viejo.md', 'docs/legado/*'] });
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok);
+    for (const ruta of ['docs/viejo.md', 'docs/legado/x.md', 'docs/legado/a/b.md']) assert.equal(esDocHistorico(estado.ctx, ruta), true, ruta);
+    for (const ruta of ['docs/viejo.md.bak', 'docs/nuevo.md', 'docs/legado', 'docs/legadoX/y.md', 'otro/docs/viejo.md']) assert.equal(esDocHistorico(estado.ctx, ruta), false, ruta);
+  });
+
+  test('sin git_path el resumen responde GIT_NO_CONFIGURADO', async () => {
+    await esc.escribirConfig();
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok);
+    assert.equal(await codigoDe(resumenGit(estado.ctx)), 'GIT_NO_CONFIGURADO');
+  });
+
   // git de Homebrew (macOS) es un enlace: /opt/homebrew/bin/git → ../Cellar/git/<versión>/bin/git.
-  test('git_path puede ser un enlace: se resuelve una vez al arrancar y se ejecuta el archivo real', async (t) => {
+  test('git_path puede ser un enlace: arranca y git responde con el archivo real', async (t) => {
     const enlace = path.join(esc.base, 'bin', process.platform === 'win32' ? 'git.exe' : 'git');
     await mkdir(path.dirname(enlace));
     try {
@@ -66,8 +64,7 @@ describe('repo en solo lectura', () => {
     await esc.escribirConfig({ git_path: enlace });
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok, JSON.stringify(estado.ok ? [] : estado.problemas));
-    assert.equal(estado.ctx.git, await realpath(rutaGit()));
-    assert.match(await git(estado.ctx, ['rev-parse', 'HEAD']), /^[0-9a-f]{40}/);
+    assert.match(await estado.ctx.consultasGit.resolver('HEAD'), /^[0-9a-f]{40}$/);
   });
 
   test('git_path que es una carpeta o que no existe se rechaza', async () => {
@@ -114,47 +111,34 @@ describe('repo en solo lectura', () => {
     assert.equal(await codigoDe(leerArchivoRepo(ctx, '.github/prompts/.env')), 'REPO_NO_PERMITIDO');
   });
 
-  test('las referencias que parecen opciones se rechazan', () => {
-    assert.equal(validarRef('main'), 'main');
-    assert.throws(() => validarRef('--output=x'), { codigo: 'REF_INVALIDA' });
-    assert.throws(() => validarRef('main..develop'), { codigo: 'REF_INVALIDA' });
-  });
-
-  test('git no reescribe el índice', async () => {
-    const indice = path.join(esc.repo, '.git', 'index');
-    const huella = async (): Promise<string> => createHash('sha256').update(await readFile(indice)).digest('hex');
-    const antes = await huella();
-    const ahora = new Date();
-    await utimes(path.join(esc.repo, 'docs', 'a.md'), ahora, ahora); // mismo contenido, otra fecha: git querría refrescar el índice
-    await git(ctx, ['status', '--porcelain=v1']);
-    assert.equal(await huella(), antes);
-  });
-
-  test('una configuración de git que ejecuta programas no se ejecuta', async (t) => {
-    const testigo = path.join(esc.base, 'testigo-fsmonitor.txt');
-    const gancho = path.join(esc.base, 'gancho.sh');
-    await writeFile(gancho, `#!/bin/sh\necho x > "${testigo.replaceAll('\\', '/')}"\n`, 'utf8');
-    gitDirecto(esc.repo, 'config', 'core.fsmonitor', gancho.replaceAll('\\', '/'));
-    // Control: sin nuestras protecciones, ¿git ejecuta el gancho en este equipo?
-    try {
-      gitDirecto(esc.repo, 'status');
-    } catch {
-      // puede fallar; solo importa si el gancho corrió
-    }
-    if (!(await existe(testigo))) {
-      t.skip('No ejecutada: en este equipo git no ejecutó el gancho de control');
-      return;
-    }
-    await rm(testigo);
-    await git(ctx, ['status', '--porcelain=v1']);
-    assert.equal(await existe(testigo), false);
-  });
-
   test('el resumen informa la rama y los tags; sin rama de desarrollo no calcula divergencia', async () => {
     const r = await resumenGit(ctx);
     assert.equal(r.rama, 'main');
     assert.equal(r.divergencia, null);
     assert.deepEqual(r.tags, []);
+  });
+
+  test('resumenGit reúne las consultas; la divergencia informa -1 si git falla, pero no disfraza otros errores', async () => {
+    const conDesarrollo = (consultas: Parameters<typeof consultasGitFalsas>[0]) => ({
+      ...ctx,
+      config: { ...ctx.config, release: { ...ctx.config.release, rama_desarrollo: 'develop' } },
+      consultasGit: consultasGitFalsas(consultas),
+    });
+    const r = await resumenGit(
+      conDesarrollo({
+        ramaActual: async () => 'main',
+        resolver: async () => 'c'.repeat(40),
+        cambiosSinCommit: async () => 2,
+        commitsRecientes: async (max) => ['abc1234 2026-09-29 docs: a', 'def5678 2026-09-28 feat: b'].slice(0, max),
+        tagsDeVersion: async () => ['v1.0.0'],
+        contarCommitsEntre: falloDeGit,
+      }),
+    );
+    assert.deepEqual([r.rama, r.head, r.cambios, r.tags], ['main', 'c'.repeat(40), 2, ['v1.0.0']]);
+    assert.deepEqual(r.recientes, ['abc1234 2026-09-29 docs: a', 'def5678 2026-09-28 feat: b']);
+    assert.deepEqual(r.divergencia, { principal: 'main', desarrollo: 'develop', principalNoEnDesarrollo: -1, desarrolloNoEnPrincipal: -1 }, 'la rama no está en el clon');
+    const conOtroError = conDesarrollo({ contarCommitsEntre: () => Promise.reject(new ErrorMcp('GIT_NO_CONFIGURADO', 'falta git_path')) });
+    assert.equal(await codigoDe(divergencia(conOtroError)), 'GIT_NO_CONFIGURADO');
   });
 
   test('con rama de desarrollo configurada, el resumen informa la divergencia', async () => {

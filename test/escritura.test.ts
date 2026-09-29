@@ -1,21 +1,15 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import fsp, { readdir, readFile, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
+import type { TestContext } from 'node:test';
 import { escribirBloque, leerBloque } from '../src/bloques.ts';
-import { crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
+import { ErrorMcp } from '../src/errores.ts';
+import { conBloqueo, crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
 import { versionDe } from '../src/guardia.ts';
-import { crearEscenario } from './helpers.ts';
+import { codigoDe, crearEscenario } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 describe('escritura segura', () => {
   let esc: Escenario;
@@ -26,6 +20,22 @@ describe('escritura segura', () => {
   });
   afterEach(async () => {
     await esc.limpiar();
+  });
+
+  test('conBloqueo deja pasar a una sola sesión y libera el turno aunque el trabajo falle', async () => {
+    const bloqueo = path.join(esc.proyecto, 'escritura.lock');
+    await conBloqueo(esc.proyecto, async () => {
+      assert.equal(await codigoDe(conBloqueo(esc.proyecto, async () => 'otra sesión')), 'BLOQUEO_OCUPADO');
+      assert.match(await readFile(bloqueo, 'utf8'), /^\d+ \d{4}-\d{2}-\d{2}T/, 'el archivo dice quién y cuándo');
+    });
+    await assert.rejects(
+      conBloqueo(esc.proyecto, async () => {
+        throw new Error('falla');
+      }),
+      { message: 'falla' },
+    );
+    assert.deepEqual((await readdir(esc.proyecto)).filter((n) => n === 'escritura.lock'), [], 'no queda el archivo');
+    assert.equal(await conBloqueo(esc.proyecto, async () => 'listo'), 'listo', 'tras un fallo el turno queda libre');
   });
 
   test('crear nunca sobrescribe', async () => {
@@ -42,6 +52,47 @@ describe('escritura segura', () => {
     assert.equal(await readFile(ruta, 'utf8'), 'nuevo');
     assert.deepEqual((await readdir(esc.proyecto)).filter((n) => n.endsWith('.tmp')), []);
   });
+  // escritura.ts importa rename por su nombre: se sustituye en fs/promises y se sincronizan los exports del módulo.
+  function sustituirRename(t: TestContext, impl: (origen: Parameters<typeof fsp.rename>[0], destino: Parameters<typeof fsp.rename>[1]) => Promise<void>) {
+    const simulado = t.mock.method(fsp, 'rename', impl);
+    syncBuiltinESMExports();
+    t.after(() => {
+      simulado.mock.restore();
+      syncBuiltinESMExports();
+    });
+    return simulado;
+  }
+
+  test('un rename que falla sin remedio responde ESCRITURA, sin filtrar el detalle ni dejar temporales', async (t) => {
+    await writeFile(ruta, 'uno\n', 'utf8');
+    const rename = sustituirRename(t, async () => {
+      throw Object.assign(new Error(`EXDEV en ${esc.base}`), { code: 'EXDEV' });
+    });
+    await assert.rejects(reemplazarAtomico(ruta, 'dos\n', versionDe('uno\n')), (error: unknown) => {
+      assert.ok(error instanceof ErrorMcp);
+      assert.equal(error.codigo, 'ESCRITURA');
+      assert.doesNotMatch(error.message, /EXDEV|asyncdv-mcp/, 'el detalle del sistema no sale');
+      return true;
+    });
+    assert.equal(rename.mock.callCount(), 1, 'un fallo que no es de bloqueo no se reintenta');
+    assert.equal(await readFile(ruta, 'utf8'), 'uno\n', 'la nota no cambió');
+    assert.deepEqual((await readdir(esc.proyecto)).filter((f) => f.endsWith('.tmp')), [], 'ni un temporal');
+  });
+
+  test('un rename bloqueado un momento (EBUSY) se reintenta hasta lograrlo', async (t) => {
+    await writeFile(ruta, 'uno\n', 'utf8');
+    const real = fsp.rename;
+    let intentos = 0;
+    sustituirRename(t, async (origen, destino) => {
+      intentos++;
+      if (intentos < 3) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+      return real(origen, destino);
+    });
+    await reemplazarAtomico(ruta, 'tres\n', versionDe('uno\n'));
+    assert.equal(intentos, 3);
+    assert.equal(await readFile(ruta, 'utf8'), 'tres\n');
+  });
+
 });
 
 describe('bloques gestionados', () => {
@@ -58,6 +109,12 @@ describe('bloques gestionados', () => {
   test('la huella detecta una edición a mano', () => {
     const editada = escribirBloque(nota, 'historial', '- línea 1', '\n').replace('- línea 1', '- línea 1 editada');
     assert.equal(leerBloque(editada, 'historial')?.editadoAMano, true);
+  });
+
+  test('un bloque sin marcador de fin está roto: no se lee como vacío ni se reescribe', () => {
+    const roto = ['## Notas', 'mío', '%% asyncdv:inicio historial %%', '- línea', 'sin cierre'].join('\n');
+    assert.throws(() => leerBloque(roto, 'historial'), { codigo: 'BLOQUE_ROTO' });
+    assert.throws(() => escribirBloque(roto, 'historial', '- nueva', '\n'), { codigo: 'BLOQUE_ROTO' });
   });
 
   test('conserva CRLF', () => {

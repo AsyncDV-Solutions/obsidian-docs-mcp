@@ -1,9 +1,10 @@
-import type { Contexto } from './arranque.ts';
 import type { Config } from './config.ts';
-import { idValido, normalizar, PRIORIDADES, TIPOS } from './dominio.ts';
+import { normalizar, PRIORIDADES, TIPOS } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import { separarNota } from './frontmatter.ts';
 import type { Guardia, Leida } from './guardia.ts';
+import { enlace, idDeEnlace, idValido } from './ids.ts';
+import type { Sesion } from './sesion.ts';
 
 export type Nota = {
   ruta: string; // relativa a la carpeta del proyecto
@@ -79,18 +80,54 @@ export function notaVigente(indice: Indice, id: string, version: string, tipos: 
   return nota;
 }
 
-// Enlace de Obsidian con la ruta completa dentro del vault: nunca es ambiguo.
-export function enlace(ctx: Contexto, rutaNota: string, alias: string): string {
-  return `[[${ctx.config.project_dir}/${rutaNota.replace(/\.md$/i, '')}|${alias}]]`;
-}
-
 // Convierte ids en enlaces. Cada id debe existir en el índice del proyecto.
-export function enlacesA(ctx: Contexto, indice: Indice, ids: string[] | undefined): string[] {
+export function enlacesA(dirProyecto: string, indice: Indice, ids: string[] | undefined): string[] {
   return (ids ?? []).map((id) => {
     const nota = indice.notas.find((n) => n.id === id);
     if (nota === undefined) throw new ErrorMcp('ID_DESCONOCIDO', `No existe una nota del proyecto con id ${id}.`);
-    return enlace(ctx, nota.ruta, id);
+    return enlace(dirProyecto, nota.ruta, id);
   });
+}
+
+// El estado de una nota: status en tareas e incidencias, decision_status en decisiones y release_status en
+// releases. Las demás notas no tienen.
+export function estadoDe(nota: Nota): string {
+  return String(nota.datos.status ?? nota.datos.decision_status ?? nota.datos.release_status ?? '');
+}
+
+// Lo que hace falta para leer notas: una sesión, o cualquier cosa con su guardia, su configuración y su índice.
+export type Lector = Pick<Sesion, 'guardia' | 'config' | 'indice'>;
+
+// Lee una nota del proyecto por su ruta. La guardia valida la ruta y el tamaño; el project_id evita entregar la
+// nota de otro proyecto.
+export async function leerNotaDelProyecto(lector: Lector, relativa: string): Promise<Leida> {
+  const leida = await lector.guardia.leer(relativa);
+  const { datos } = separarNota(leida.texto, lector.config.limites.yaml_max_kb * 1024);
+  if (datos.project_id !== lector.config.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${leida.ruta} no pertenece a este proyecto.`);
+  return leida;
+}
+
+// Lee una nota del proyecto por su id o por su ruta relativa: exactamente uno de los dos.
+export async function leerNota(lector: Lector, referencia: { id?: string | undefined; ruta?: string | undefined }): Promise<Leida> {
+  const { id, ruta } = referencia;
+  if ((id === undefined) === (ruta === undefined)) throw new ErrorMcp('ARGUMENTOS', 'Indica id o ruta: uno de los dos.');
+  let relativa = ruta ?? '';
+  if (id !== undefined) {
+    const nota = (await lector.indice()).notas.find((n) => n.id === id);
+    if (nota === undefined) throw new ErrorMcp('NOTA_NO_EXISTE', `No hay una nota del proyecto con id ${id}.`);
+    relativa = nota.ruta;
+  }
+  return leerNotaDelProyecto(lector, relativa);
+}
+
+// Cuántas notas hay de cada tipo. Las tareas se cuentan además por estado: «tarea · En curso».
+export function conteoDeNotas(indice: Indice): Record<string, number> {
+  const conteos: Record<string, number> = {};
+  for (const n of indice.notas) {
+    const clave = n.tipo === 'tarea' ? `tarea · ${String(n.datos.status ?? 'sin estado')}` : n.tipo;
+    conteos[clave] = (conteos[clave] ?? 0) + 1;
+  }
+  return conteos;
 }
 
 export type Filtros = {
@@ -111,12 +148,7 @@ export function comoLista(valor: unknown): string[] {
 
 // ¿La propiedad menciona el id, como texto o como enlace [[…/ID-slug|alias]]?
 export function mencionaId(valor: unknown, id: string): boolean {
-  return comoLista(valor).some((v) => {
-    if (v === id) return true;
-    const destino = /^\[\[([^|\]]+)/.exec(v)?.[1] ?? '';
-    const nombre = destino.split('/').at(-1) ?? '';
-    return nombre === id || nombre.startsWith(`${id}-`);
-  });
+  return comoLista(valor).some((v) => idDeEnlace(v) === id);
 }
 
 export function filtrar(indice: Indice, f: Filtros): Nota[] {

@@ -89,6 +89,8 @@ export function notaTarea(o: {
 }
 
 export function notaContadores(valores: Record<string, number> = {}): string {
+  // Sin ultimo_G a propósito: el MCP agrega el contador que falta. No sale de contadoresIniciales para no
+  // depender del código que se prueba.
   const todos = { ultimo_T: 0, ultimo_F: 0, ultimo_I: 0, ultimo_ADR: 0, ...valores };
   return [
     '---',
@@ -127,4 +129,24 @@ export async function convertirEnRepoGit(repo: string): Promise<void> {
 export function commitear(repo: string, mensaje: string): void {
   gitDirecto(repo, 'add', '-A');
   gitDirecto(repo, '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', mensaje);
+}
+
+// El código de error estable (ErrorMcp) con el que termina una promesa: 'OK' si no falla, 'OTRO' si el error no lleva código.
+export async function codigoDe(promesa: Promise<unknown>): Promise<string> {
+  try {
+    await promesa;
+    return 'OK';
+  } catch (error) {
+    return (error as { codigo?: string }).codigo ?? 'OTRO';
+  }
+}
+
+// Un reloj que solo avanza cuando la prueba lo dice: el vencimiento y el tope se prueban sin esperar.
+export function relojFalso(inicio = 1_700_000_000_000): (() => number) & { avanzar(ms: number): void } {
+  let ahora = inicio;
+  return Object.assign(() => ahora, {
+    avanzar(ms: number): void {
+      ahora += ms;
+    },
+  });
 }

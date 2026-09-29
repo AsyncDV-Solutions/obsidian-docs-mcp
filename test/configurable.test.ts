@@ -1,26 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import fsp, { access, mkdir, open, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import { cargarConfig } from '../src/config.ts';
-import { crearGuardia } from '../src/guardia.ts';
-import { quienPide } from '../src/herramientas/comun.ts';
 import { buscarGit, iniciarProyecto } from '../src/iniciar.ts';
-import { indexar } from '../src/notas.ts';
 import { prepararTareaNueva } from '../src/tareas.ts';
-import { crearEscenario } from './helpers.ts';
+import { crearSesion } from '../src/sesion.ts';
+import { codigoDe, crearEscenario } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
-
-async function codigoDe(promesa: Promise<unknown>): Promise<string> {
-  try {
-    await promesa;
-    return 'OK';
-  } catch (error) {
-    return (error as { codigo?: string }).codigo ?? 'OTRO';
-  }
-}
 
 describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
   let esc: Escenario;
@@ -47,6 +37,7 @@ describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
     for (const c of ['Trabajo', 'Funcionalidades', 'Decisiones', 'Incidencias', 'Releases', 'Guias']) assert.ok(carpetas.includes(c), c);
     assert.deepEqual(await readdir(path.join(esc.proyecto, 'Trabajo')), ['Tareas']);
     assert.match(await readFile(path.join(esc.proyecto, '_proyecto.md'), 'utf8'), /project_id: demo\ntype: proyecto\nid_prefix: DEM\nschema: 1\ntitle: Demo App/);
+    assert.match(await readFile(path.join(esc.proyecto, '_contadores.md'), 'utf8'), /type: contadores\nschema: 1\ntitle: Contadores\nultimo_T: 0\nultimo_F: 0\nultimo_I: 0\nultimo_ADR: 0\nultimo_G: 0\n/);
     assert.equal((await validarArranque(['--config', esc.rutaConfig], {})).ok, true);
   });
 
@@ -59,6 +50,56 @@ describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
     assert.deepEqual(r.creadas, []);
     assert.ok(r.existentes.includes('Tablero.md'));
     assert.equal(await readFile(tablero, 'utf8'), 'TESTIGO: editado a mano\n');
+  });
+
+  // iniciar crea las notas del sistema con crearExclusivo, como aplicar: fuerza el paso a disco (fsync) y no deja una
+  // nota a medias. Se observa el fsync en el prototipo de los archivos abiertos.
+  async function prototipoDeArchivo(): Promise<{ sync(): Promise<void> }> {
+    const abierto = await open(esc.rutaConfig, 'r');
+    try {
+      return Object.getPrototypeOf(abierto) as { sync(): Promise<void> };
+    } finally {
+      await abierto.close();
+    }
+  }
+
+  test('las notas del sistema se escriben con fsync', async (t) => {
+    const sync = t.mock.method(await prototipoDeArchivo(), 'sync');
+    const r = await iniciarProyecto(await config());
+    assert.equal(r.creadas.filter((ruta) => ruta.endsWith('.md')).length, 3);
+    assert.equal(sync.mock.callCount(), 3, 'un fsync por cada nota del sistema');
+  });
+
+  test('las notas que ya existían no se vuelven a escribir ni a sincronizar', async (t) => {
+    const cfg = await config();
+    await iniciarProyecto(cfg);
+    const sync = t.mock.method(await prototipoDeArchivo(), 'sync');
+    const r = await iniciarProyecto(cfg);
+    assert.equal(r.existentes.length, 3);
+    assert.equal(sync.mock.callCount(), 0);
+  });
+
+  test('si el disco falla al sincronizar una nota del sistema, esa no queda a medias y las anteriores quedan completas', async (t) => {
+    let llamadas = 0;
+    t.mock.method(await prototipoDeArchivo(), 'sync', async () => {
+      if (++llamadas === 3) throw new Error('EIO');
+    });
+    await assert.rejects(iniciarProyecto(await config()), /EIO/);
+    for (const completa of ['_proyecto.md', '_contadores.md']) await access(path.join(esc.proyecto, completa));
+    await assert.rejects(access(path.join(esc.proyecto, 'Tablero.md')), 'la nota que falló se borra');
+  });
+
+  test('un error del disco distinto de «ya existe» no se toma por una nota que ya existía', async (t) => {
+    const abrir = t.mock.method(fsp, 'open', async () => {
+      throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    });
+    syncBuiltinESMExports();
+    t.after(() => {
+      abrir.mock.restore();
+      syncBuiltinESMExports();
+    });
+    await assert.rejects(iniciarProyecto(await config()), /EACCES/);
+    assert.ok(abrir.mock.callCount() > 0, 'el error viene de abrir la nota');
   });
 
   test('avisa si el vault no parece un vault de Obsidian', async () => {
@@ -100,25 +141,12 @@ describe('carpetas y usuario configurables', () => {
     await iniciarProyecto((await cargarConfig(esc.rutaConfig, {})).config);
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok);
-    const { ctx } = estado;
-    const g = crearGuardia(ctx.proyecto, ctx.config.limites);
+    const sesion = crearSesion(estado.ctx);
     const datos = { titulo: 'Probar carpetas', descripcion: 'x', criterios: ['y'], prioridad: 'P2', estado_inicial: 'Por hacer' as const };
-    const p = await prepararTareaNueva(ctx, g, await indexar(g, ctx.config), { ...datos, pedido_por: quienPide(ctx, undefined) });
+    const p = await prepararTareaNueva(sesion, datos);
     assert.ok('confirmacion' in p, 'una tarea nueva no puede salir repetida');
-    await aplicarCambio(ctx, g, p.confirmacion);
-    const texto = await readFile(path.join(ctx.proyecto, 'Trabajo', 'Pendientes', 'DEM-T-0001-probar-carpetas.md'), 'utf8');
+    await aplicarCambio(sesion, p.confirmacion);
+    const texto = await readFile(path.join(sesion.proyecto, 'Trabajo', 'Pendientes', 'DEM-T-0001-probar-carpetas.md'), 'utf8');
     assert.match(texto, /pidió: Ana/);
-  });
-
-  test('pedido_por: el explícito gana; sin él, el usuario configurado; sin ninguno, error', async () => {
-    await esc.escribirConfig({ usuario: 'Ana' });
-    const conUsuario = await validarArranque(['--config', esc.rutaConfig], {});
-    assert.ok(conUsuario.ok);
-    assert.equal(quienPide(conUsuario.ctx, 'Luis'), 'Luis');
-    assert.equal(quienPide(conUsuario.ctx, undefined), 'Ana');
-    await esc.escribirConfig();
-    const sinUsuario = await validarArranque(['--config', esc.rutaConfig], {});
-    assert.ok(sinUsuario.ok);
-    assert.throws(() => quienPide(sinUsuario.ctx, undefined), { codigo: 'FALTA_PEDIDO_POR' });
   });
 });

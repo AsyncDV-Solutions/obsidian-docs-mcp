@@ -1,9 +1,9 @@
 import type { Contexto } from './arranque.ts';
-import { crear, editar } from './cambios.ts';
-import type { Preparado } from './cambios.ts';
-import { ahora, limpiarTextoLibre } from './dominio.ts';
+import type { Sesion } from './sesion.ts';
+import { clavesTocadas, crear, editar } from './cambios.ts';
+import type { Preparado, Propiedades } from './cambios.ts';
+import { ahora, limpiarTextoLibre, quienPide } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
-import type { Guardia } from './guardia.ts';
 import { enlacesA, notaVigente } from './notas.ts';
 import type { Indice } from './notas.ts';
 
@@ -19,15 +19,18 @@ function filasAfirmaciones(afirmaciones: Afirmacion[]): string {
 }
 
 // La key es única entre funcionalidades y guías: una misma cosa se documenta una sola vez.
+const CLASES_CON_EVIDENCIA = ['funcionalidad', 'guia'] as const;
+type ClaseConEvidencia = (typeof CLASES_CON_EVIDENCIA)[number];
+
 function exigirKeyLibre(indice: Indice, key: string): void {
-  const repetida = indice.notas.find((n) => (n.tipo === 'funcionalidad' || n.tipo === 'guia') && n.datos.key === key);
+  const repetida = indice.notas.find((n) => (CLASES_CON_EVIDENCIA as readonly string[]).includes(n.tipo) && n.datos.key === key);
   if (repetida !== undefined) throw new ErrorMcp('KEY_REPETIDA', `Ya existe ${repetida.id} con la key ${key}.`);
 }
 
-export type DatosFuncionalidad = {
+// Lo que comparten las funcionalidades y las guías al nacer.
+type DatosConEvidencia = {
   key: string;
   titulo: string;
-  que_hace: string;
   afirmaciones: Afirmacion[];
   evidence: string;
   reviewed_commit: string;
@@ -37,6 +40,8 @@ export type DatosFuncionalidad = {
   pendientes?: string[];
 };
 
+export type DatosFuncionalidad = DatosConEvidencia & { que_hace: string };
+
 // ——— Versión 1.2.0: el contenido de una funcionalidad vive en bloques gestionados ———
 
 // La tabla completa, con su encabezado: los marcadores no pueden quedar entre el encabezado y las filas.
@@ -45,7 +50,7 @@ function tablaAfirmaciones(afirmaciones: Afirmacion[]): string {
 }
 
 function listaPendientes(ctx: Contexto, indice: Indice, ids: string[] | undefined): string {
-  const enlaces = enlacesA(ctx, indice, ids);
+  const enlaces = enlacesA(ctx.config.project_dir, indice, ids);
   return enlaces.length === 0 ? '(ninguno)' : enlaces.map((e) => `- ${e}`).join('\n');
 }
 
@@ -55,32 +60,43 @@ function envolver(texto: string): string {
   return `\n${texto}\n`;
 }
 
-export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosFuncionalidad): Promise<Preparado> {
-  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
-  exigirKeyLibre(indice, d.key);
-  return crear(ctx, guardia, indice, {
-    tipo: 'funcionalidad',
-    id: { numerar: 'funcionalidad' },
-    carpeta: ctx.config.carpetas.funcionalidades,
-    titulo: d.titulo,
+// Crea una funcionalidad o una guía, que se documentan con evidencia: la key es única entre las dos y llevan las
+// propiedades de la revisión y los bloques de afirmaciones y pendientes. propio dice lo que solo lleva cada tipo, y se
+// calcula después de comprobar la key: sus bloques de texto y, para una plantilla propia en el formato anterior de la
+// guía, sus campos {{…}}. Recibe la lista de pendientes ya armada.
+async function crearConEvidencia(
+  sesion: Sesion,
+  datos: DatosConEvidencia,
+  tipo: ClaseConEvidencia,
+  herramienta: string,
+  propio: (pendientes: string) => { bloques: Record<string, string>; valores?: Record<string, string> },
+): Promise<Preparado> {
+  const indice = await sesion.indice();
+  exigirKeyLibre(indice, datos.key);
+  const pendientes = listaPendientes(sesion, indice, datos.pendientes);
+  const { bloques, valores } = propio(pendientes);
+  return crear(sesion, indice, {
+    tipo,
+    titulo: datos.titulo,
     propiedades: {
-      key: d.key,
-      area: d.area ?? [],
-      evidence: d.evidence,
-      reviewed_commit: d.reviewed_commit,
-      reviewed_on: ahora(ctx.config.zona_horaria).fecha,
-      source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
+      key: datos.key,
+      area: datos.area ?? [],
+      evidence: datos.evidence,
+      reviewed_commit: datos.reviewed_commit,
+      reviewed_on: ahora(sesion.config.zona_horaria).fecha,
+      source: datos.fuentes,
+      related: enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
     },
-    valores: {},
-    bloques: {
-      que_hace: envolver(d.que_hace),
-      afirmaciones: envolver(tablaAfirmaciones(d.afirmaciones)),
-      pendientes: envolver(listaPendientes(ctx, indice, d.pendientes)),
-    },
-    historial: `creada · revisada en ${d.reviewed_commit}`,
-    herramienta: 'funcionalidad_crear',
+    valores: valores ?? {},
+    bloques: { ...bloques, afirmaciones: envolver(tablaAfirmaciones(datos.afirmaciones)), pendientes: envolver(pendientes) },
+    historial: `creada · revisada en ${datos.reviewed_commit}`,
+    herramienta,
   });
+}
+
+export async function prepararFuncionalidad(sesion: Sesion, sinLimpiar: DatosFuncionalidad): Promise<Preparado> {
+  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  return crearConEvidencia(sesion, datos, 'funcionalidad', 'funcionalidad_crear', () => ({ bloques: { que_hace: envolver(datos.que_hace) } }));
 }
 
 // ——— Actualizar notas con evidencia: funcionalidades (1.2.0) y guías (2.1.0) ———
@@ -89,7 +105,7 @@ export async function prepararFuncionalidad(ctx: Contexto, guardia: Guardia, ind
 type DatosActualizacionConEvidencia = {
   id: string;
   version_esperada: string;
-  pedido_por: string;
+  pedido_por?: string | undefined;
   motivo?: string;
   titulo?: string;
   afirmaciones?: Afirmacion[];
@@ -104,21 +120,21 @@ type DatosActualizacionConEvidencia = {
 export type DatosActualizacionFuncionalidad = DatosActualizacionConEvidencia & { que_hace?: string };
 export type DatosActualizacionGuia = DatosActualizacionConEvidencia & { proposito?: string; pasos?: string; problemas?: string };
 
-type TipoConEvidencia = { tipo: 'funcionalidad' | 'guia'; nombre: string; herramienta: string };
+type TipoConEvidencia = { tipo: ClaseConEvidencia; nombre: string; herramienta: string };
 
-export async function prepararActualizacionFuncionalidad(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosActualizacionFuncionalidad): Promise<Preparado> {
-  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
+export async function prepararActualizacionFuncionalidad(sesion: Sesion, sinLimpiar: DatosActualizacionFuncionalidad): Promise<Preparado> {
+  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
   const tipo = { tipo: 'funcionalidad', nombre: 'la funcionalidad', herramienta: 'funcionalidad_actualizar' } as const;
-  return prepararActualizacionConEvidencia(ctx, guardia, indice, tipo, d, [['que_hace', d.que_hace]]);
+  return prepararActualizacionConEvidencia(sesion, tipo, datos, [['que_hace', datos.que_hace]]);
 }
 
-export async function prepararActualizacionGuia(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosActualizacionGuia): Promise<Preparado> {
-  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
+export async function prepararActualizacionGuia(sesion: Sesion, sinLimpiar: DatosActualizacionGuia): Promise<Preparado> {
+  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
   const tipo = { tipo: 'guia', nombre: 'la guía', herramienta: 'guia_actualizar' } as const;
-  return prepararActualizacionConEvidencia(ctx, guardia, indice, tipo, d, [
-    ['proposito', d.proposito],
-    ['pasos', d.pasos],
-    ['problemas', d.problemas === undefined ? undefined : textoProblemas(d.problemas)],
+  return prepararActualizacionConEvidencia(sesion, tipo, datos, [
+    ['proposito', datos.proposito],
+    ['pasos', datos.pasos],
+    ['problemas', datos.problemas === undefined ? undefined : textoProblemas(datos.problemas)],
   ]);
 }
 
@@ -127,56 +143,43 @@ export async function prepararActualizacionGuia(ctx: Contexto, guardia: Guardia,
 // que esté fuera de los bloques queda igual, byte a byte.
 // textos: los bloques de texto propios del tipo, en el orden en que aparecen en la nota.
 async function prepararActualizacionConEvidencia(
-  ctx: Contexto,
-  guardia: Guardia,
-  indice: Indice,
+  sesion: Sesion,
   t: TipoConEvidencia,
-  d: DatosActualizacionConEvidencia,
+  datos: DatosActualizacionConEvidencia,
   textos: [string, string | undefined][],
 ): Promise<Preparado> {
-  const nota = notaVigente(indice, d.id, d.version_esperada, [t.tipo], t.nombre);
+  const pedidoPor = quienPide(sesion.config, datos.pedido_por);
+  const indice = await sesion.indice();
+  const nota = notaVigente(indice, datos.id, datos.version_esperada, [t.tipo], t.nombre);
   // Afirmaciones, fuentes y evidencia son una revisión nueva: sin el SHA revisado no se sabe contra qué código valen.
-  if ((d.afirmaciones !== undefined || d.fuentes !== undefined || d.evidence !== undefined) && d.reviewed_commit === undefined) {
+  if ((datos.afirmaciones !== undefined || datos.fuentes !== undefined || datos.evidence !== undefined) && datos.reviewed_commit === undefined) {
     throw new ErrorMcp('FALTA_COMMIT', 'Cambiar afirmaciones, fuentes o evidence exige reviewed_commit: el SHA contra el que revisaste.');
   }
 
-  const propiedades: [string, unknown][] = [];
-  if (d.titulo !== undefined) propiedades.push(['title', d.titulo]); // el nombre del archivo no cambia
-  if (d.area !== undefined) propiedades.push(['area', d.area]);
-  if (d.evidence !== undefined) propiedades.push(['evidence', d.evidence]);
-  if (d.reviewed_commit !== undefined) {
-    propiedades.push(['reviewed_commit', d.reviewed_commit], ['reviewed_on', ahora(ctx.config.zona_horaria).fecha]);
-  }
-  if (d.fuentes !== undefined) propiedades.push(['source', d.fuentes]);
-  if (d.relacionadas !== undefined) propiedades.push(['related', enlacesA(ctx, indice, d.relacionadas)]);
+  const propiedades: Propiedades = {
+    title: datos.titulo, // el nombre del archivo no cambia
+    area: datos.area,
+    evidence: datos.evidence,
+    reviewed_commit: datos.reviewed_commit,
+    reviewed_on: datos.reviewed_commit === undefined ? undefined : ahora(sesion.config.zona_horaria).fecha,
+    source: datos.fuentes,
+    related: datos.relacionadas === undefined ? undefined : enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
+  };
 
   const bloques: Record<string, string> = {};
   for (const [nombre, texto] of textos) if (texto !== undefined) bloques[nombre] = envolver(texto);
-  if (d.afirmaciones !== undefined) bloques.afirmaciones = envolver(tablaAfirmaciones(d.afirmaciones));
-  if (d.pendientes !== undefined) bloques.pendientes = envolver(listaPendientes(ctx, indice, d.pendientes));
+  if (datos.afirmaciones !== undefined) bloques.afirmaciones = envolver(tablaAfirmaciones(datos.afirmaciones));
+  if (datos.pendientes !== undefined) bloques.pendientes = envolver(listaPendientes(sesion, indice, datos.pendientes));
 
-  const nombres = [...propiedades.map(([clave]) => clave), ...Object.keys(bloques)];
+  const nombres = [...clavesTocadas(propiedades), ...Object.keys(bloques)];
   if (nombres.length === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
-  const detalles = [`pidió: ${d.pedido_por}`, d.motivo ? `motivo: ${d.motivo}` : ''].filter((x) => x !== '').join(' · ');
-  return editar(ctx, guardia, nota, { herramienta: t.herramienta, historial: `actualizada: ${nombres.join(', ')} · ${detalles}`, propiedades, bloques });
+  const detalles = [`pidió: ${pedidoPor}`, datos.motivo ? `motivo: ${datos.motivo}` : ''].filter((x) => x !== '').join(' · ');
+  return editar(sesion, nota, { herramienta: t.herramienta, historial: `actualizada: ${nombres.join(', ')} · ${detalles}`, propiedades, bloques });
 }
 
 // ——— Versión 1.1.0 ———
 
-export type DatosGuia = {
-  key: string;
-  titulo: string;
-  proposito: string;
-  pasos: string;
-  problemas?: string;
-  afirmaciones: Afirmacion[];
-  evidence: string;
-  reviewed_commit: string;
-  fuentes: string[];
-  area?: string[];
-  relacionadas?: string[];
-  pendientes?: string[];
-};
+export type DatosGuia = DatosConEvidencia & { proposito: string; pasos: string; problemas?: string };
 
 function textoProblemas(problemas: string | undefined): string {
   return problemas === undefined || problemas === '' ? '(ninguno registrado)' : problemas;
@@ -185,36 +188,15 @@ function textoProblemas(problemas: string | undefined): string {
 // Una guía explica CÓMO usar algo que ya existe (un flujo, un agente, el sistema completo).
 // Lleva la misma evidencia que una funcionalidad, así que notas_desactualizadas también la revisa.
 // Desde la 2.1.0 su contenido va en bloques gestionados (guia_actualizar los reescribe).
-export async function prepararGuia(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosGuia): Promise<Preparado> {
-  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
-  exigirKeyLibre(indice, d.key);
-  const problemas = textoProblemas(d.problemas);
-  const pendientes = listaPendientes(ctx, indice, d.pendientes);
-  return crear(ctx, guardia, indice, {
-    tipo: 'guia',
-    id: { numerar: 'guia' },
-    carpeta: ctx.config.carpetas.guias,
-    titulo: d.titulo,
-    propiedades: {
-      key: d.key,
-      area: d.area ?? [],
-      evidence: d.evidence,
-      reviewed_commit: d.reviewed_commit,
-      reviewed_on: ahora(ctx.config.zona_horaria).fecha,
-      source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
-    },
-    // Solo los usa una plantilla propia en el formato anterior a la 2.1.0 (campos {{…}}, sin bloques).
-    valores: { proposito: d.proposito, pasos: d.pasos, problemas, afirmaciones: filasAfirmaciones(d.afirmaciones), pendientes },
-    bloques: {
-      proposito: envolver(d.proposito),
-      pasos: envolver(d.pasos),
-      problemas: envolver(problemas),
-      afirmaciones: envolver(tablaAfirmaciones(d.afirmaciones)),
-      pendientes: envolver(pendientes),
-    },
-    historial: `creada · revisada en ${d.reviewed_commit}`,
-    herramienta: 'guia_crear',
+export async function prepararGuia(sesion: Sesion, sinLimpiar: DatosGuia): Promise<Preparado> {
+  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  return crearConEvidencia(sesion, datos, 'guia', 'guia_crear', (pendientes) => {
+    const problemas = textoProblemas(datos.problemas);
+    return {
+      // Solo los usa una plantilla propia en el formato anterior a la 2.1.0 (campos {{…}}, sin bloques).
+      valores: { proposito: datos.proposito, pasos: datos.pasos, problemas, afirmaciones: filasAfirmaciones(datos.afirmaciones), pendientes },
+      bloques: { proposito: envolver(datos.proposito), pasos: envolver(datos.pasos), problemas: envolver(problemas) },
+    };
   });
 }
 
@@ -233,23 +215,22 @@ export type DatosAdr = {
 };
 
 // Una decisión nace «Propuesta». Pasarla a «Aceptada» (con decided) lo haces tú en Obsidian.
-export async function prepararAdr(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosAdr): Promise<Preparado> {
-  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
-  return crear(ctx, guardia, indice, {
+export async function prepararAdr(sesion: Sesion, sinLimpiar: DatosAdr): Promise<Preparado> {
+  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  const indice = await sesion.indice();
+  return crear(sesion, indice, {
     tipo: 'decision',
-    id: { numerar: 'decision' },
-    carpeta: ctx.config.carpetas.decisiones,
-    titulo: d.titulo,
+    titulo: datos.titulo,
     propiedades: {
       decision_status: 'Propuesta',
-      deciders: d.deciders,
-      supersedes: enlacesA(ctx, indice, d.supersedes),
-      area: d.area ?? [],
-      evidence: d.evidence,
-      source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
+      deciders: datos.deciders,
+      supersedes: enlacesA(sesion.config.project_dir, indice, datos.supersedes),
+      area: datos.area ?? [],
+      evidence: datos.evidence,
+      source: datos.fuentes,
+      related: enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
     },
-    valores: { contexto: d.contexto, decision: d.decision, alternativas: d.alternativas, consecuencias: d.consecuencias },
+    valores: { contexto: datos.contexto, decision: datos.decision, alternativas: datos.alternativas, consecuencias: datos.consecuencias },
     herramienta: 'adr_crear',
   });
 }
@@ -267,30 +248,30 @@ export type DatosIncidencia = {
   release?: string;
   fuentes: string[];
   relacionadas?: string[];
-  pedido_por: string;
+  pedido_por?: string | undefined;
 };
 
 // Una incidencia usa los mismos estados que una tarea (y tarea_cambiar_estado desde esta etapa).
-export async function prepararIncidencia(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosIncidencia): Promise<Preparado> {
-  const d = limpiarTextoLibre(entrada, ctx.config.limites.campo_max_kb);
-  return crear(ctx, guardia, indice, {
+export async function prepararIncidencia(sesion: Sesion, sinLimpiar: DatosIncidencia): Promise<Preparado> {
+  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  const pedidoPor = quienPide(sesion.config, datos.pedido_por);
+  const indice = await sesion.indice();
+  return crear(sesion, indice, {
     tipo: 'incidencia',
-    id: { numerar: 'incidencia' },
-    carpeta: ctx.config.carpetas.incidencias,
-    titulo: d.titulo,
+    titulo: datos.titulo,
     propiedades: {
       status: 'Por hacer',
-      priority: d.prioridad,
-      severity: d.severity,
-      environment: d.environment,
-      detected: d.detected,
-      area: d.area ?? [],
-      release: d.release === undefined ? undefined : enlacesA(ctx, indice, [d.release])[0],
-      source: d.fuentes,
-      related: enlacesA(ctx, indice, d.relacionadas),
+      priority: datos.prioridad,
+      severity: datos.severity,
+      environment: datos.environment,
+      detected: datos.detected,
+      area: datos.area ?? [],
+      release: datos.release === undefined ? undefined : enlacesA(sesion.config.project_dir, indice, [datos.release])[0],
+      source: datos.fuentes,
+      related: enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
     },
-    valores: { sintoma: d.sintoma, impacto: d.impacto, causa: d.causa ?? 'Pendiente de validar.' },
-    historial: `creada en «Por hacer» · pidió: ${d.pedido_por}`,
+    valores: { sintoma: datos.sintoma, impacto: datos.impacto, causa: datos.causa ?? 'Pendiente de validar.' },
+    historial: `creada en «Por hacer» · pidió: ${pedidoPor}`,
     herramienta: 'incidencia_crear',
   });
 }

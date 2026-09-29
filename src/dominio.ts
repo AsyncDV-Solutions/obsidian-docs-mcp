@@ -14,19 +14,6 @@ export const PRIORIDADES = ['P0', 'P1', 'P2', 'P3'] as const;
 export const RESOLUCIONES = ['hecha', 'cancelada', 'duplicada'] as const;
 export type Resolucion = (typeof RESOLUCIONES)[number];
 
-// Letra de cada tipo numerado dentro del ID (con el prefijo del proyecto): PRJ-T-0001, PRJ-F-0001, PRJ-I-0001, PRJ-ADR-0001 y PRJ-G-0001.
-export const LETRA = { tarea: 'T', funcionalidad: 'F', incidencia: 'I', decision: 'ADR', guia: 'G' } as const;
-export type TipoNumerado = keyof typeof LETRA;
-
-// ¿El id tiene el formato de su tipo? El marcador, los contadores y las referencias no llevan id.
-export function idValido(id: string, tipo: string, prefijo: string): boolean {
-  if (tipo === 'release') return new RegExp(`^${prefijo}-R-v\\d+\\.\\d+\\.\\d+$`).test(id);
-  if (Object.hasOwn(LETRA, tipo)) {
-    return new RegExp(`^${prefijo}-${LETRA[tipo as TipoNumerado]}-\\d{4,}$`).test(id);
-  }
-  return id === '';
-}
-
 // Minúsculas, sin tildes y con espacios simples: para buscar y para detectar títulos repetidos.
 export function normalizar(texto: string): string {
   return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -56,6 +43,17 @@ export function limpiarTextoLibre<T>(valor: T, maxKb: number, campo = ''): T {
     return limpio as T;
   }
   return valor;
+}
+
+// Quién pidió el cambio: el que indicó el modelo o, si no indicó ninguno, el usuario configurado. Se resuelve después
+// de limpiarTextoLibre, para que un texto inválido se rechace antes que la falta de pedido_por, y el nombre que sale,
+// venga de donde venga, pasa por la misma limpieza: es una línea del historial de la nota.
+export function quienPide(config: { usuario?: string | undefined; limites: { campo_max_kb: number } }, valor: string | undefined): string {
+  const quien = valor ?? config.usuario;
+  if (quien === undefined) {
+    throw new ErrorMcp('FALTA_PEDIDO_POR', 'Indica pedido_por (quién pidió el cambio) o configura «usuario» / ASYNCDV_DOCS_USUARIO.');
+  }
+  return limpiarTextoLibre(quien, config.limites.campo_max_kb, 'pedido_por');
 }
 
 // ——— Nombres de archivo, fechas y transiciones ———

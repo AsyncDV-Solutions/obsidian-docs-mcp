@@ -1,9 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
-import { indexar } from '../notas.ts';
+import { PATRON_SHA } from '../fuentes.ts';
 import { comandosTag, listaVerificacion, prepararBorradorRelease, proponer } from '../release.ts';
-import { ejecutar, PREPARA, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { ejecutar, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 const LISTA = z.array(z.string().min(1).max(500).regex(UNA_LINEA)).max(50).optional();
@@ -15,13 +15,13 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
     {
       description: `Propone la versión y el tag de ${v.nombre} a partir de git (commits, migraciones y tags). SOLO TEXTO: no crea tags ni cambia nada.`,
       inputSchema: z.object({ head: z.string().max(100).optional().describe('Rama o commit a analizar; por defecto, la rama principal configurada') }),
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('release_proponer', async () => {
-        const { ctx } = entorno.exigir();
-        const head = args.head ?? ctx.config.release.rama_principal;
-        const p = await proponer(ctx, head);
+        const sesion = entorno.exigir();
+        const head = args.head ?? sesion.config.release.rama_principal;
+        const p = await proponer(sesion, head);
         const corto = p.head.slice(0, 7);
         const c = p.clasificacion;
         const d = p.divergencia;
@@ -34,15 +34,13 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
             d === null
               ? ''
               : `- Divergencia: ${d.principal} tiene ${d.principalNoEnDesarrollo} commit(s) que no están en ${d.desarrollo}; ${d.desarrollo} tiene ${d.desarrolloNoEnPrincipal} que no están en ${d.principal}.`,
-            d !== null && d.principalNoEnDesarrollo > 0
-              ? `  ⚠️ ${d.principal} va por delante de ${d.desarrollo}: un merge --ff-only de ${d.desarrollo} a ${d.principal} fallará. Revísalo antes del tag.`
-              : '',
+            ...p.avisos.map((aviso) => `  ⚠️ ${aviso}`),
             'Señales para revisar:',
             ...(p.motivos.length === 0 ? ['- (ninguna)'] : p.motivos.map((m) => `- ${m}`)),
             'Lista de verificación antes del tag:',
-            ...listaVerificacion(ctx, corto),
+            ...listaVerificacion(sesion, corto),
             'Comandos (los ejecutas tú, después de verificar):',
-            ...comandosTag(ctx, p.version, corto),
+            ...comandosTag(sesion, p.version, corto),
           ]
             .filter((l) => l !== '')
             .join('\n'),
@@ -68,23 +66,23 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
         migraciones: LISTA,
         bump: z.enum(['major', 'minor', 'patch', 'linea-base']),
         base_ref: z.string().regex(/^(ninguno|v\d+\.\d+\.\d+)$/),
-        head_ref: z.string().regex(/^[0-9a-f]{7,40}$/),
+        head_ref: z.string().regex(PATRON_SHA),
         release_status: z.enum(['Borrador', 'Lista', 'Publicada']).default('Borrador'),
         promotion_run: z.string().regex(/^\d{1,20}$/).optional().describe('Id del run de CI que publicó el release (opcional); lo aportas tú'),
         fuentes: z.array(z.string().min(3).max(300).regex(UNA_LINEA)).max(20).default([]),
         version_esperada: VERSION_NOTA.optional(),
       }),
-      annotations: PREPARA,
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('release_borrador_guardar', async () => {
-        const { ctx, guardia } = entorno.exigir();
+        const sesion = entorno.exigir();
         const datos = {
           ...args,
           secciones: { anadido: args.anadido, cambiado: args.cambiado, obsoleto: args.obsoleto, eliminado: args.eliminado, corregido: args.corregido, seguridad: args.seguridad },
           migraciones: args.migraciones ?? [],
         };
-        return respuestaPreparada(await prepararBorradorRelease(ctx, guardia, await indexar(guardia, ctx.config), datos));
+        return respuestaPreparada(await prepararBorradorRelease(sesion, datos));
       }),
   );
 }

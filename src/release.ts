@@ -1,16 +1,16 @@
 import type { Contexto } from './arranque.ts';
+import type { Sesion } from './sesion.ts';
 import { crear, editar } from './cambios.ts';
-import type { Preparado } from './cambios.ts';
+import type { Preparado, Propiedades } from './cambios.ts';
 import { nombreProyecto } from './config.ts';
 import { ahora, limpiarTextoLibre } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
-import type { Guardia } from './guardia.ts';
-import type { Indice } from './notas.ts';
-import { divergencia as calcularDivergencia, git, validarRef } from './repo.ts';
+import type { Commit } from './git.ts';
+import { idDeRelease } from './ids.ts';
+import { divergencia as calcularDivergencia } from './repo.ts';
 import type { Divergencia } from './repo.ts';
 
 export type Bump = 'major' | 'minor' | 'patch' | 'ninguno' | 'linea-base';
-export type Commit = { sha: string; asunto: string; cuerpo: string };
 export type Clasificacion = { major: Commit[]; minor: Commit[]; patch: Commit[]; otros: Commit[]; noConvencionales: Commit[] };
 
 const CONVENCIONAL = /^([a-z]+)(\([^)]*\))?(!)?: \S/;
@@ -74,38 +74,29 @@ export type Propuesta = {
   motivos: string[]; // señales que justifican el bump, para que las revises
   clasificacion: Clasificacion | null;
   divergencia: Divergencia | null;
+  avisos: string[]; // cosas que revisar antes del tag que no son señales para el bump
 };
 
-async function gitSiHay(ctx: Contexto, args: string[]): Promise<string> {
-  try {
-    return await git(ctx, args);
-  } catch {
-    return ''; // p. ej., git grep sin coincidencias termina con código 1
-  }
+// La rama principal va por delante de la de desarrollo: un merge --ff-only de desarrollo a principal fallará.
+function avisosDeDivergencia(d: Divergencia | null): string[] {
+  if (d === null || d.principalNoEnDesarrollo <= 0) return [];
+  return [`${d.principal} va por delante de ${d.desarrollo}: un merge --ff-only de ${d.desarrollo} a ${d.principal} fallará. Revísalo antes del tag.`];
 }
 
 export async function proponer(ctx: Contexto, headRef: string): Promise<Propuesta> {
-  const head = (await git(ctx, ['rev-parse', '--verify', '--end-of-options', `${validarRef(headRef)}^{commit}`])).trim();
-  const base = ultimoTag((await git(ctx, ['tag', '--list', 'v*'])).split('\n').filter((l) => l !== ''));
+  const git = ctx.consultasGit;
+  const head = await git.resolver(headRef);
+  const base = ultimoTag(await git.tagsDeVersion());
   const divergencia = await calcularDivergencia(ctx);
+  const avisos = avisosDeDivergencia(divergencia);
   if (base === null) {
     const motivos = ['No hay tags v*: se propone la línea base v1.0.0 en el próximo release que cumpla la lista de verificación.'];
-    return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia };
+    return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia, avisos };
   }
 
-  const registros = await git(ctx, ['log', '--format=%H%x1f%s%x1f%b%x1e', '--end-of-options', `${validarRef(base)}..${head}`]);
-  const commits = registros
-    .split('\x1e')
-    .map((r) => r.trim())
-    .filter((r) => r !== '')
-    .map((r) => {
-      const [sha = '', asunto = '', cuerpo = ''] = r.split('\x1f');
-      return { sha, asunto, cuerpo };
-    });
+  const commits = await git.commitsEntre(base, head);
   const c = clasificar(commits);
-  const archivos = (await git(ctx, ['diff', '--name-only', '--no-renames', '--no-ext-diff', '--no-textconv', '--end-of-options', base, head]))
-    .split('\n')
-    .filter((l) => l !== '');
+  const archivos = await git.archivosCambiados(base, head);
 
   const motivos: string[] = [];
   let bump: Bump = commits.length === 0 ? 'ninguno' : 'patch';
@@ -117,11 +108,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
   // Migraciones destructivas (release.migraciones): una migración nueva con el marcador sube a major.
   const migraciones = ctx.config.release.migraciones;
   if (migraciones?.marcador_destructivo !== undefined) {
-    const marcadas = (await gitSiHay(ctx, ['grep', '-l', '--fixed-strings', '-e', migraciones.marcador_destructivo, head, '--', migraciones.carpeta]))
-      .split('\n')
-      .filter((l) => l !== '')
-      .map((l) => l.slice(l.indexOf(':') + 1)) // "<sha>:ruta" → "ruta"
-      .filter((ruta) => archivos.includes(ruta));
+    const marcadas = (await git.archivosConMarcador(head, migraciones.marcador_destructivo, migraciones.carpeta)).filter((ruta) => archivos.includes(ruta));
     if (marcadas.length > 0) {
       bump = 'major';
       motivos.push(`Migraciones marcadas como destructivas: ${marcadas.join(', ')}.`);
@@ -132,7 +119,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
     if (archivos.some((a) => a.startsWith(senal.prefijo)) && !motivos.includes(senal.mensaje)) motivos.push(senal.mensaje);
   }
   if (c.noConvencionales.length > 0) motivos.push(`${c.noConvencionales.length} commit(s) no siguen Conventional Commits: revísalos a mano.`);
-  return { head, base, bump, version: siguienteVersion(base, bump), motivos, clasificacion: c, divergencia };
+  return { head, base, bump, version: siguienteVersion(base, bump), motivos, clasificacion: c, divergencia, avisos };
 }
 
 // ——— Borrador de notas de release ———
@@ -156,58 +143,58 @@ export type DatosRelease = {
 };
 
 // Contenido del bloque «release»: resumen, los 6 tipos de Keep a Changelog, migraciones, verificación y comandos.
-export function contenidoRelease(ctx: Contexto, d: DatosRelease): string {
+export function contenidoRelease(ctx: Contexto, datos: DatosRelease): string {
   const lista = (items: string[] | undefined, vacio: string): string[] => (items === undefined || items.length === 0 ? [vacio] : items.map((i) => `- ${i}`));
-  const lineas = ['## Resumen', d.resumen, ''];
+  const lineas = ['## Resumen', datos.resumen, ''];
   for (const clave of Object.keys(SECCIONES) as ClaveSeccion[]) {
-    lineas.push(`## ${SECCIONES[clave]}`, ...lista(d.secciones[clave], '(nada)'), '');
+    lineas.push(`## ${SECCIONES[clave]}`, ...lista(datos.secciones[clave], '(nada)'), '');
   }
-  lineas.push('## Migraciones de base de datos', ...lista(d.migraciones, '(ninguna)'), '');
-  lineas.push('## Verificación antes del tag', ...listaVerificacion(ctx, d.head_ref), '');
-  lineas.push('## Comandos sugeridos (los ejecutas tú, después de verificar)', ...comandosTag(ctx, d.version, d.head_ref));
+  lineas.push('## Migraciones de base de datos', ...lista(datos.migraciones, '(ninguna)'), '');
+  lineas.push('## Verificación antes del tag', ...listaVerificacion(ctx, datos.head_ref), '');
+  lineas.push('## Comandos sugeridos (los ejecutas tú, después de verificar)', ...comandosTag(ctx, datos.version, datos.head_ref));
   return lineas.join('\n');
 }
 
 // Crea o actualiza <carpetas.releases>/<prefijo>-R-v<versión>.md. Al actualizar, solo cambian las propiedades y el bloque.
-export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosRelease): Promise<Preparado> {
-  const cfg = ctx.config;
-  const d = limpiarTextoLibre(entrada, cfg.limites.campo_max_kb);
-  const id = `${cfg.id_prefix}-R-v${d.version}`;
-  const tagExiste = (await git(ctx, ['tag', '--list', `v${d.version}`])).trim() !== '';
-  if (d.release_status === 'Publicada' && !tagExiste) {
-    throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${d.version} en tu repo local: «Publicada» exige que exista.`);
+export async function prepararBorradorRelease(sesion: Sesion, sinLimpiar: DatosRelease): Promise<Preparado> {
+  const cfg = sesion.config;
+  const datos = limpiarTextoLibre(sinLimpiar, cfg.limites.campo_max_kb);
+  const indice = await sesion.indice();
+  const id = idDeRelease(cfg.id_prefix, datos.version);
+  const tagExiste = await sesion.consultasGit.existeTag(`v${datos.version}`);
+  if (datos.release_status === 'Publicada' && !tagExiste) {
+    throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${datos.version} en tu repo local: «Publicada» exige que exista.`);
   }
-  const bloque = contenidoRelease(ctx, d);
-  const propiedades: Record<string, unknown> = {
-    version: d.version,
-    proposed_tag: `v${d.version}`,
-    release_status: d.release_status,
-    bump: d.bump,
-    base_ref: d.base_ref,
-    head_ref: d.head_ref,
+  const bloque = contenidoRelease(sesion, datos);
+  const propiedades: Propiedades = {
+    version: datos.version,
+    proposed_tag: `v${datos.version}`,
+    release_status: datos.release_status,
+    bump: datos.bump,
+    base_ref: datos.base_ref,
+    head_ref: datos.head_ref,
     analyzed_on: ahora(cfg.zona_horaria).fecha,
     tag_verified: tagExiste,
-    promotion_run: d.promotion_run,
-    source: d.fuentes,
+    promotion_run: datos.promotion_run,
+    source: datos.fuentes,
   };
 
   const existente = indice.notas.find((n) => n.id === id);
   if (existente === undefined) {
-    return crear(ctx, guardia, indice, {
+    return crear(sesion, indice, {
       tipo: 'release',
       id, // los releases no se numeran: el id lleva la versión
-      carpeta: cfg.carpetas.releases,
-      titulo: d.titulo,
+      titulo: datos.titulo,
       propiedades,
       valores: {},
       bloques: { release: bloque },
       herramienta: 'release_borrador_guardar',
     });
   }
-  if (d.version_esperada !== existente.version) {
+  if (datos.version_esperada !== existente.version) {
     throw new ErrorMcp('CONFLICTO', `${id} ya existe: léelo con nota_leer y pasa su versión en version_esperada.`);
   }
   // Sin historial: la plantilla de release no lo tiene. Una propiedad sin valor (promotion_run) se quita.
-  const cambios: [string, unknown][] = [['title', d.titulo], ...Object.entries(propiedades).map(([clave, valor]): [string, unknown] => [clave, valor ?? null])];
-  return editar(ctx, guardia, existente, { herramienta: 'release_borrador_guardar', propiedades: cambios, bloques: { release: bloque } });
+  const cambios: Propiedades = { title: datos.titulo, ...Object.fromEntries(Object.entries(propiedades).map(([clave, valor]) => [clave, valor ?? null])) };
+  return editar(sesion, existente, { herramienta: 'release_borrador_guardar', propiedades: cambios, bloques: { release: bloque } });
 }

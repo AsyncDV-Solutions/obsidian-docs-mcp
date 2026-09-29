@@ -1,7 +1,7 @@
 // Prepara la carpeta del proyecto en el vault: la crea con sus subcarpetas y las notas del sistema
 // (_proyecto.md, _contadores.md y Tablero.md). Nunca sobrescribe: lo que ya existe queda igual.
 // Lo ejecutas tú, no el modelo:  pnpm run iniciar [--config <ruta>]   (o con las variables ASYNCDV_DOCS_*)
-import { access, constants, lstat, mkdir, open, stat } from 'node:fs/promises';
+import { access, constants, lstat, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Document } from 'yaml';
@@ -9,8 +9,9 @@ import { validarArranque } from './arranque.ts';
 import { cargarConfig, esRutaAbsolutaLocal, leerRutaConfig, nombreProyecto, PREFIJO_ENTORNO, VARIABLE_CONFIG } from './config.ts';
 import type { Config } from './config.ts';
 import { ErrorMcp } from './errores.ts';
+import { crearExclusivo } from './escritura.ts';
 import { unirNota } from './frontmatter.ts';
-import { RUTA_CONTADORES } from './ids.ts';
+import { contadoresIniciales, RUTA_CONTADORES } from './ids.ts';
 import { contiene, mismaRuta, rutaCanonica } from './rutas.ts';
 import { RUTA_TABLERO } from './tablero.ts';
 
@@ -35,18 +36,13 @@ async function crearCarpetaSegura(base: string, segmentos: string[], inicio: Ini
   return real;
 }
 
-// Crea la nota solo si no existe ("wx" falla si ya está).
+// Crea la nota solo si no existe. crearExclusivo nunca sobrescribe, fuerza el paso a disco y no deja una nota a medias.
 async function crearNota(proyecto: string, relativa: string, contenido: string, inicio: Inicio): Promise<void> {
   try {
-    const fh = await open(path.join(proyecto, relativa), 'wx');
-    try {
-      await fh.writeFile(contenido, 'utf8');
-    } finally {
-      await fh.close();
-    }
+    await crearExclusivo(path.join(proyecto, relativa), contenido);
     inicio.creadas.push(relativa);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (!(error instanceof ErrorMcp && error.codigo === 'YA_EXISTE')) throw error;
     inicio.existentes.push(relativa);
   }
 }
@@ -80,7 +76,7 @@ export async function iniciarProyecto(config: Config): Promise<Inicio> {
     proyecto,
     RUTA_CONTADORES,
     nota(
-      { ...base, type: 'contadores', schema: 1, title: 'Contadores', ultimo_T: 0, ultimo_F: 0, ultimo_I: 0, ultimo_ADR: 0, ultimo_G: 0 },
+      { ...base, type: 'contadores', schema: 1, title: 'Contadores', ...contadoresIniciales() },
       'Último número usado por cada tipo de nota. Lo actualiza el MCP al crear notas: no lo edites a mano.\n',
     ),
     inicio,

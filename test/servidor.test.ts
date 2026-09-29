@@ -24,7 +24,6 @@ describe('servidor MCP, por sus herramientas', () => {
 
   beforeEach(async () => {
     esc = await crearEscenario();
-    await esc.escribirConfig({ limites: { escrituras_por_minuto: 60 } }); // estas pruebas aplican seguido
     await escribirNota(esc.proyecto, '_contadores.md', notaContadores());
     await mkdir(carpetaTareas());
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
@@ -101,6 +100,13 @@ describe('servidor MCP, por sus herramientas', () => {
     assert.match(r.texto, /^\[FALTA_PEDIDO_POR\] /);
   });
 
+  test('con el texto inválido y sin pedido_por se rechaza primero el texto', async () => {
+    const { pedido_por: _quitado, ...sinPedido } = TAREA;
+    const r = await cliente.llamar('tarea_crear', { ...sinPedido, criterios: ['mal %% asyncdv:fin %%'] });
+    assert.equal(r.error, true);
+    assert.match(r.texto, /^\[CAMPO_INVALIDO\] /);
+  });
+
   // Lo que el esquema rechaza llega con el texto de zod y sin código estable: por eso la regla de texto
   // libre vive en el dominio y no en el esquema, que solo cubre la forma de la entrada.
   test('una entrada que rompe el esquema responde con isError y el texto de zod, sin código estable', async () => {
@@ -108,6 +114,23 @@ describe('servidor MCP, por sus herramientas', () => {
     assert.equal(r.error, true);
     assert.match(r.texto, /^Input validation error: Invalid arguments for tool tarea_crear: prioridad: /);
     assert.doesNotMatch(r.texto, /^\[[A-Z_]+\]/);
+  });
+
+  // Cada herramienta acepta solo los ids de su tipo: la del tipo equivocado cae en el esquema y la correcta llega al dominio.
+  test('los esquemas de id distinguen funcionalidades, guías, tareas e incidencias', async () => {
+    const version = { version_esperada: '0123456789abcdef', pedido_por: 'Ana' };
+    const llamadas: [string, Record<string, unknown>, string, string][] = [
+      ['funcionalidad_actualizar', { ...version, titulo: 'Otro' }, 'DEM-F-0001', 'DEM-G-0001'],
+      ['guia_actualizar', { ...version, titulo: 'Otro' }, 'DEM-G-0001', 'DEM-F-0001'],
+      ['tarea_actualizar', { ...version, prioridad: 'P1' }, 'DEM-I-0001', 'DEM-F-0001'],
+      ['tarea_cambiar_estado', { ...version, estado: 'En curso' }, 'DEM-T-0001', 'DEM-G-0001'],
+    ];
+    for (const [herramienta, resto, idBueno, idMalo] of llamadas) {
+      const rechazada = await cliente.llamar(herramienta, { id: idMalo, ...resto });
+      assert.match(rechazada.texto, /^Input validation error: Invalid arguments for tool /, `${herramienta} con ${idMalo}`);
+      const aceptada = await cliente.llamar(herramienta, { id: idBueno, ...resto });
+      assert.match(aceptada.texto, /^\[NOTA_NO_EXISTE\] /, `${herramienta} con ${idBueno} llega al dominio`);
+    }
   });
 
   test('la versión que entrega nota_leer sirve para editar la nota', async () => {
