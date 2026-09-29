@@ -163,8 +163,8 @@ function entornoGit(): Record<string, string> {
 
 // git SIN shell, con protecciones fijas. Solo se llama con subcomandos de lectura.
 export async function git(ctx: Contexto, args: string[]): Promise<string> {
-  const gitPath = ctx.config.git_path;
-  if (gitPath === undefined) throw new ErrorMcp('GIT_NO_CONFIGURADO', 'Falta git_path (o ASYNCDV_DOCS_GIT_PATH): la ruta absoluta de git.');
+  const gitPath = ctx.git; // el archivo real, resuelto al arrancar
+  if (gitPath === null) throw new ErrorMcp('GIT_NO_CONFIGURADO', 'Falta git_path (o ASYNCDV_DOCS_GIT_PATH): la ruta absoluta de git.');
   const protecciones = ['-C', ctx.repo, '--no-pager', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
   try {
     const { stdout } = await ejecutarArchivo(gitPath, [...protecciones, ...args], {

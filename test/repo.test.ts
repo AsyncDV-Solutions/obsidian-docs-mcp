@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
@@ -51,6 +51,35 @@ describe('repo en solo lectura', () => {
   });
   afterEach(async () => {
     await esc.limpiar();
+  });
+
+  // git de Homebrew (macOS) es un enlace: /opt/homebrew/bin/git → ../Cellar/git/<versión>/bin/git.
+  test('git_path puede ser un enlace: se resuelve una vez al arrancar y se ejecuta el archivo real', async (t) => {
+    const enlace = path.join(esc.base, 'bin', process.platform === 'win32' ? 'git.exe' : 'git');
+    await mkdir(path.dirname(enlace));
+    try {
+      await symlink(rutaGit(), enlace, 'file');
+    } catch {
+      t.skip('No ejecutada: este sistema no permite crear symlinks sin privilegios');
+      return;
+    }
+    await esc.escribirConfig({ git_path: enlace });
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok, JSON.stringify(estado.ok ? [] : estado.problemas));
+    assert.equal(estado.ctx.git, await realpath(rutaGit()));
+    assert.match(await git(estado.ctx, ['rev-parse', 'HEAD']), /^[0-9a-f]{40}/);
+  });
+
+  test('git_path que es una carpeta o que no existe se rechaza', async () => {
+    const casos = [
+      [esc.base, 'GIT_NO_ARCHIVO'],
+      [path.join(esc.base, 'no-existe'), 'RUTA_NO_EXISTE'],
+    ];
+    for (const [ruta, codigo] of casos) {
+      await esc.escribirConfig({ git_path: ruta });
+      const estado = await validarArranque(['--config', esc.rutaConfig], {});
+      assert.deepEqual(estado.ok ? [] : estado.problemas.map((p) => p.codigo), [codigo], ruta);
+    }
   });
 
   test('el inventario muestra las categorías y nunca los excluidos', async () => {

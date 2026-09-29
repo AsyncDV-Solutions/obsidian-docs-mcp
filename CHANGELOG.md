@@ -2,6 +2,12 @@
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y las versiones, [SemVer](https://semver.org/lang/es/).
 
+## 2.1.1 — 2026-09-29
+
+### Corregido
+- `git_path` puede ser un enlace, como el git de Homebrew en macOS (`/opt/homebrew/bin/git → ../Cellar/git/<versión>/bin/git`). Antes el servidor no arrancaba (`RUTA_ENLACE`), también con la ruta que sugiere `pnpm run iniciar`. Ahora el enlace se resuelve una vez al arrancar y se ejecuta el archivo real. Con los permisos de Node basta `--allow-fs-read=<git_path>`. Esto dejaba en rojo la CI de macOS.
+- Una `git_path` que es una carpeta da `GIT_NO_ARCHIVO`.
+
 ## 2.1.0 — 2026-09-29
 
 ### Añadido

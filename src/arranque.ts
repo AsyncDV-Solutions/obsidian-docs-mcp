@@ -1,4 +1,4 @@
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import * as z from 'zod/v4';
 import { carpetaEstado, cargarConfig, esRutaAbsolutaLocal, leerRutaConfig } from './config.ts';
@@ -16,6 +16,7 @@ export type Contexto = {
   repo: string; // raíz real del repo documentado
   proyecto: string; // carpeta real del proyecto dentro del vault
   plantillas: string | null; // carpeta real de plantillas_dir, si se configuró
+  git: string | null; // archivo real de git_path (un enlace se resuelve al arrancar), si se configuró
 };
 
 export type Problema = { codigo: string; mensaje: string };
@@ -123,11 +124,32 @@ export async function validarArranque(args: string[], entorno: NodeJS.ProcessEnv
   // 7. Las plantillas existen y calzan con sus campos.
   for (const tipo of Object.keys(PLANTILLAS) as TipoPlantilla[]) await intentar(problemas, () => cargarPlantilla(tipo, plantillas));
 
-  // 8. git: la ruta real, sin enlaces.
+  // 8. git: el archivo real (git_path puede ser un enlace, como el de Homebrew).
   const gitPath = config.git_path;
-  if (gitPath !== undefined) await intentar(problemas, () => rutaCanonica(gitPath, 'git_path'));
+  const git = gitPath === undefined ? null : await intentar(problemas, () => resolverGit(gitPath));
+  if (git === undefined) return { ok: false, problemas };
 
-  return problemas.length === 0 ? { ok: true, ctx: { config, dirEstado, repo, proyecto, plantillas } } : { ok: false, problemas };
+  return problemas.length === 0 ? { ok: true, ctx: { config, dirEstado, repo, proyecto, plantillas, git } } : { ok: false, problemas };
+}
+
+// A diferencia de las carpetas (rutaCanonica), git_path SÍ puede ser un enlace: Homebrew instala
+// /opt/homebrew/bin/git → ../Cellar/git/<versión>/bin/git, y exigir la ruta de Cellar se rompería
+// con cada actualización. Se resuelve UNA vez al arrancar y se ejecuta ese archivo: si el enlace
+// cambia después, no cambia qué se ejecuta.
+// Se lee solo la ruta dada (stat sigue el enlace): con los permisos de Node basta
+// --allow-fs-read=<git_path>; leer la ruta real exigiría permitir también Cellar.
+async function resolverGit(ruta: string): Promise<string> {
+  const dada = path.resolve(ruta);
+  let esArchivo: boolean;
+  let real: string;
+  try {
+    esArchivo = (await stat(dada)).isFile();
+    real = await realpath(dada);
+  } catch {
+    throw new ErrorMcp('RUTA_NO_EXISTE', 'git_path no existe o no se puede leer.');
+  }
+  if (!esArchivo) throw new ErrorMcp('GIT_NO_ARCHIVO', 'git_path debe ser el ejecutable de git, no una carpeta.');
+  return real;
 }
 
 async function validarMarcador(proyecto: string, config: Config): Promise<void> {

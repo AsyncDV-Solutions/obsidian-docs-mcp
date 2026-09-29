@@ -25,7 +25,7 @@ Ejemplos listos para copiar: [`ejemplos/config.ejemplo.json`](../ejemplos/config
 | `vault_path` | `ASYNCDV_DOCS_VAULT_PATH` | sí | Ruta absoluta de la raíz del vault de Obsidian. |
 | `project_dir` | `ASYNCDV_DOCS_PROJECT_DIR` | sí | Carpeta del proyecto **dentro** del vault, con `/` (`Proyectos/mi-app`). Es lo único que el MCP puede escribir. |
 | `zona_horaria` | `ASYNCDV_DOCS_ZONA_HORARIA` | sí | Zona IANA para fechas: `America/Santiago`, `Europe/Madrid`, `America/Mexico_City`, `UTC`… |
-| `git_path` | `ASYNCDV_DOCS_GIT_PATH` | no* | Ruta absoluta de git. *Sin ella, las herramientas del repo quedan bloqueadas. `pnpm run iniciar` te sugiere la tuya. |
+| `git_path` | `ASYNCDV_DOCS_GIT_PATH` | no* | Ruta absoluta de git. *Sin ella, las herramientas del repo quedan bloqueadas. `pnpm run iniciar` te sugiere la tuya. Puede ser un enlace (como `/opt/homebrew/bin/git`): se resuelve al arrancar y se ejecuta el archivo real. |
 | `usuario` | `ASYNCDV_DOCS_USUARIO` | no | Nombre que se usa en `pedido_por` cuando el modelo no indica otro. |
 | `state_dir` | `ASYNCDV_DOCS_STATE_DIR` | no | Carpeta de logs y del bloqueo de escritura. Ver abajo. |
 | `plantillas_dir` | `ASYNCDV_DOCS_PLANTILLAS_DIR` | no | Carpeta con tus propias plantillas. Ver abajo. |

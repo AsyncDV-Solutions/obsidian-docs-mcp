@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { crearEscenario, rutaGit } from './helpers.ts';
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
+const RAIZ = fileURLToPath(new URL('../', import.meta.url));
 
 async function archivosTs(carpeta: string): Promise<string[]> {
   const salida: string[] = [];
@@ -49,6 +51,35 @@ describe('endurecimiento', () => {
       assert.equal(r.stdout.trim(), 'ERR_ACCESS_DENIED');
     } finally {
       await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  // Homebrew: git_path es un enlace y su archivo real (Cellar) queda fuera de --allow-fs-read.
+  test('con --permission, un git_path enlazado arranca permitiendo solo el enlace', async (t) => {
+    const esc = await crearEscenario();
+    try {
+      const enlace = path.join(esc.base, 'bin', process.platform === 'win32' ? 'git.exe' : 'git');
+      await mkdir(path.dirname(enlace));
+      try {
+        await symlink(rutaGit(), enlace, 'file');
+      } catch {
+        t.skip('No ejecutada: este sistema no permite crear symlinks sin privilegios');
+        return;
+      }
+      await esc.escribirConfig({ git_path: enlace });
+      const script = path.join(esc.base, 'arrancar.mjs');
+      const arranque = JSON.stringify(pathToFileURL(path.join(SRC, 'arranque.ts')).href);
+      const codigo = [
+        `import { validarArranque } from ${arranque};`,
+        `const e = await validarArranque(['--config', ${JSON.stringify(esc.rutaConfig)}], {});`,
+        `console.log(e.ok ? 'OK' : e.problemas.map((p) => p.codigo).join(','));`,
+      ];
+      await writeFile(script, codigo.join('\n'), 'utf8');
+      const permisos = ['--permission', `--allow-fs-read=${RAIZ}`, `--allow-fs-read=${esc.base}`, `--allow-fs-write=${esc.base}`];
+      const r = spawnSync(process.execPath, [...permisos, script], { encoding: 'utf8' });
+      assert.equal(r.stdout.trim(), 'OK', r.stderr);
+    } finally {
+      await esc.limpiar();
     }
   });
 });

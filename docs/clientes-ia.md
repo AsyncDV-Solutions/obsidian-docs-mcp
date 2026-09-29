@@ -149,7 +149,7 @@ Node puede limitar qué lee y escribe el proceso. Si algo queda fuera, el servid
 --allow-fs-write=<vault_path>/<project_dir>
 --allow-fs-read=<carpeta de config.json y de estado>
 --allow-fs-write=<carpeta de estado>
---allow-fs-read=<git_path>
+--allow-fs-read=<git_path>              (la misma ruta de la config, aunque sea un enlace)
 --allow-fs-read=<plantillas_dir>        (solo si la usas)
 --allow-child-process                    (para git)
 ```
