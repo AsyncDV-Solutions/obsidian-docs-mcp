@@ -350,12 +350,13 @@ describe('documentos y tablero', () => {
 
   test('el tablero agrupa por estado, bloqueos, release y urgentes', async () => {
     const enlaceA = (ruta: string, id: string): string => `[[Proyectos/demo/${ruta}|${id}]]`;
-    const t = (id: string, archivo: string, titulo: string, estado: string, prioridad: string, extra: string[] = []) =>
-      escribirNota(esc.proyecto, `Tareas/${archivo}.md`, notaTarea({ id, titulo, estado, prioridad, extra }));
-    await t('DEM-T-0001', 'DEM-T-0001-a', 'A', 'Por hacer', 'P0', [`release: "${enlaceA('Releases/DEM-R-v1.0.0', 'DEM-R-v1.0.0')}"`]);
-    await t('DEM-T-0002', 'DEM-T-0002-b', 'B', 'Bloqueado', 'P2', ['blocked_by:', `  - "${enlaceA('Tareas/DEM-T-0001-a', 'DEM-T-0001')}"`, 'blocked_reason: espera la promoción']);
-    await t('DEM-T-0003', 'DEM-T-0003-c', 'C', 'Completado', 'P1');
-    await t('DEM-T-0004', 'DEM-T-0004-d', 'D', 'Bloqueado', 'P3', ['blocked_by:', `  - "${enlaceA('Tareas/DEM-T-0099-x', 'DEM-T-0099')}"`]);
+    const tareas = [
+      { archivo: 'DEM-T-0001-a', id: 'DEM-T-0001', titulo: 'A', estado: 'Por hacer', prioridad: 'P0', extra: [`release: "${enlaceA('Releases/DEM-R-v1.0.0', 'DEM-R-v1.0.0')}"`] },
+      { archivo: 'DEM-T-0002-b', id: 'DEM-T-0002', titulo: 'B', estado: 'Bloqueado', prioridad: 'P2', extra: ['blocked_by:', `  - "${enlaceA('Tareas/DEM-T-0001-a', 'DEM-T-0001')}"`, 'blocked_reason: espera la promoción'] },
+      { archivo: 'DEM-T-0003-c', id: 'DEM-T-0003', titulo: 'C', estado: 'Completado', prioridad: 'P1' },
+      { archivo: 'DEM-T-0004-d', id: 'DEM-T-0004', titulo: 'D', estado: 'Bloqueado', prioridad: 'P3', extra: ['blocked_by:', `  - "${enlaceA('Tareas/DEM-T-0099-x', 'DEM-T-0099')}"`] },
+    ];
+    for (const { archivo, ...datos } of tareas) await escribirNota(esc.proyecto, `Tareas/${archivo}.md`, notaTarea(datos));
     await escribirNota(esc.proyecto, 'Incidencias/DEM-I-0001-falla.md', ['---', 'id: DEM-I-0001', 'project_id: demo', 'type: incidencia', 'schema: 1', 'title: Falla', 'status: En curso', 'priority: P1', '---', ''].join('\n'));
 
     const lineas = generarTablero(ctx, await indice()).split('\n');
@@ -388,11 +389,14 @@ describe('documentos y tablero', () => {
 
   test('regenerar el tablero conserva los saltos de línea CRLF', async () => {
     await writeFile(path.join(esc.proyecto, 'Tablero.md'), TABLERO.replaceAll('\n', '\r\n'), 'utf8');
-    await escribirNota(esc.proyecto, 'Tareas/DEM-T-0001-a.md', notaTarea({ id: 'DEM-T-0001', titulo: 'A', prioridad: 'P1' }));
+    await escribirNota(esc.proyecto, 'Tareas/DEM-T-0001-a.md', notaTarea({ id: 'DEM-T-0001', titulo: 'A', prioridad: 'P1', extra: ['release: "[[Proyectos/demo/Releases/DEM-R-v1.0.0|DEM-R-v1.0.0]]"'] }));
+    await escribirNota(esc.proyecto, 'Tareas/DEM-T-0002-b.md', notaTarea({ id: 'DEM-T-0002', titulo: 'B', estado: 'Bloqueado', extra: ['blocked_by:', '  - "[[Proyectos/demo/Tareas/DEM-T-0001-a|DEM-T-0001]]"', 'blocked_reason: espera'] }));
     const p = (await prepararTablero(ctx, g, await indice())) ?? assert.fail('debería preparar un cambio');
     await aplicarCambio(ctx, g, p.confirmacion);
     const final = await readFile(path.join(esc.proyecto, 'Tablero.md'), 'utf8');
     assert.match(final, /### Por hacer \(1\)/);
+    assert.match(final, /#### DEM-R-v1\.0\.0/);
+    assert.match(final, /bloqueada por: DEM-T-0001 \(Por hacer\) · motivo: espera/);
     assert.ok(!/[^\r]\n/.test(final), 'apareció un salto LF suelto');
   });
 

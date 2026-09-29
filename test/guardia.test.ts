@@ -9,7 +9,7 @@ import type { Escenario } from './helpers.ts';
 
 const LIMITES = { nota_max_kb: 1, notas_max: 100 }; // 1 KB: el tope se prueba fácil
 
-function codigoDeSync(fn: () => unknown): string {
+function codigoDeLlamada(fn: () => unknown): string {
   try {
     fn();
     return 'OK';
@@ -40,7 +40,7 @@ describe('validarRelativa', () => {
   ];
   for (const [ruta, esperado] of casos) {
     test(`${JSON.stringify(ruta)} → ${esperado}`, () => {
-      assert.equal(codigoDeSync(() => validarRelativa(ruta)), esperado);
+      assert.equal(codigoDeLlamada(() => validarRelativa(ruta)), esperado);
     });
   }
 });

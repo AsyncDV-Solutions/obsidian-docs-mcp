@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
-import { validarArranque } from '../src/arranque.ts';
+import { NODE_MINIMO, validarArranque } from '../src/arranque.ts';
 import type { EstadoArranque } from '../src/arranque.ts';
 import { crearEscenario, marcador } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
@@ -228,11 +228,15 @@ describe('validarArranque', () => {
   });
 
   test('una versión de Node anterior a la mínima se rechaza y la mínima se acepta', async () => {
-    assert.deepEqual(codigos(await validarArranque(['--config', esc.rutaConfig], {}, '22.11.0')), ['NODE_VERSION']);
-    assert.deepEqual(codigos(await validarArranque(['--config', esc.rutaConfig], {}, '24.0.0')), []);
+    const vieja = `${NODE_MINIMO - 1}.11.0`;
+    const rechazada = await validarArranque(['--config', esc.rutaConfig], {}, vieja);
+    assert.deepEqual(codigos(rechazada), ['NODE_VERSION']);
+    assert.ok(!rechazada.ok);
+    assert.equal(rechazada.problemas[0]?.mensaje, `Se requiere Node ${NODE_MINIMO} o posterior y este proceso usa v${vieja}.`);
+    assert.deepEqual(codigos(await validarArranque(['--config', esc.rutaConfig], {}, `${NODE_MINIMO}.0.0`)), []);
   });
 
-  test('sin state_dir ni config.json, una carpeta de datos relativa se rechaza', async (t) => {
+  test('sin state_dir ni config.json, una carpeta de estado derivada de una variable relativa se rechaza', async (t) => {
     if (process.platform === 'darwin') {
       t.skip('En macOS la carpeta de estado sale de la carpeta personal, no del entorno');
       return;

@@ -185,7 +185,7 @@ describe('tareas de punta a punta', () => {
 
   // Decisión pendiente: al salir de «Bloqueado» no se borran blocked_by ni blocked_reason, y filtrar por
   // depende_de sigue encontrando la tarea aunque ya no esté bloqueada. Esta prueba fija lo que pasa hoy.
-  test('al salir de «Bloqueado» la tarea conserva blocked_by y blocked_reason', async () => {
+  test('hoy, al salir de «Bloqueado» la tarea conserva blocked_by y blocked_reason', async () => {
     await aplicarCambio(ctx, g, (await crear()).confirmacion);
     await aplicarCambio(ctx, g, (await crear({ titulo: 'Otra tarea' })).confirmacion);
     const pedido = { pedido_por: 'Ana' };

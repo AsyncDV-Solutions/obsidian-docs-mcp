@@ -5,6 +5,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y l
 ## Sin publicar
 
 ### Corregido
+- Un fallo de git al buscar migraciones destructivas ya no se toma por «sin coincidencias»: `release_proponer` responde `GIT` en vez de proponer una versión sin esa señal. `git grep` termina con 1 tanto cuando no encuentra nada como cuando no puede leer un objeto, así que esa salida solo se acepta si git no escribió nada en stderr.
 - Alcanzar el tope de escrituras por minuto (`LIMITE`) ya no consume el código de confirmación: en cuanto pasa la ventana, `cambio_aplicar` se puede reintentar con el mismo código.
 - El `motivo` de `tarea_cambiar_estado` y el `criterio_nuevo` de `tarea_actualizar` con espacios sobrantes ya no llegan sin recortar a la nota: se validaban y se descartaba el valor recortado.
 

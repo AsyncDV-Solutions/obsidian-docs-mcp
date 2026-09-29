@@ -9,6 +9,9 @@ import type { Indice } from './notas.ts';
 import { divergencia as calcularDivergencia, git, validarRef } from './repo.ts';
 import type { Divergencia } from './repo.ts';
 
+// git grep termina con 1 cuando no encuentra nada: no es un fallo.
+const GREP_SIN_COINCIDENCIAS = 1;
+
 export type Bump = 'major' | 'minor' | 'patch' | 'ninguno' | 'linea-base';
 export type Commit = { sha: string; asunto: string; cuerpo: string };
 export type Clasificacion = { major: Commit[]; minor: Commit[]; patch: Commit[]; otros: Commit[]; noConvencionales: Commit[] };
@@ -109,7 +112,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
   // Migraciones destructivas (release.migraciones): una migración nueva con el marcador sube a major.
   const migraciones = ctx.config.release.migraciones;
   if (migraciones?.marcador_destructivo !== undefined) {
-    const marcadas = (await git(ctx, ['grep', '-l', '--fixed-strings', '-e', migraciones.marcador_destructivo, head, '--', migraciones.carpeta], { salidasValidas: [1] })) // 1: sin coincidencias
+    const marcadas = (await git(ctx, ['grep', '-l', '--fixed-strings', '-e', migraciones.marcador_destructivo, head, '--', migraciones.carpeta], { salidasValidas: [GREP_SIN_COINCIDENCIAS] }))
       .split('\n')
       .filter((l) => l !== '')
       .map((l) => l.slice(l.indexOf(':') + 1)) // "<sha>:ruta" → "ruta"

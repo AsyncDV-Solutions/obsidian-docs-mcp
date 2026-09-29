@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
-import { git, inventario, leerArchivoRepo, patronARegex, resumenGit, validarRef } from '../src/repo.ts';
+import { git, inventario, leerArchivoRepo, patronARegex, resumenGit, salidaAceptada, validarRef } from '../src/repo.ts';
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
@@ -52,7 +52,26 @@ describe('repo en solo lectura', () => {
     assert.equal(await codigoDe(git(ctx, grep)), 'GIT', 'sin declararla, la salida 1 sigue siendo un fallo');
     assert.equal(await codigoDe(git(ctx, ['grep', '-l', '-e', 'x', 'ref-que-no-existe'], { salidasValidas: [1] })), 'GIT', 'un ref inexistente termina con 128');
     const sinTiempo = { ...ctx, config: { ...ctx.config, limites: { ...ctx.config.limites, git_timeout_ms: 1 } } };
-    assert.equal(await codigoDe(git(sinTiempo, grep, { salidasValidas: [1] })), 'GIT', 'en Windows un proceso matado por el plazo también termina con 1');
+    assert.equal(await codigoDe(git(sinTiempo, grep, { salidasValidas: [1] })), 'GIT', 'un plazo agotado no es una salida válida');
+  });
+
+  // Las ramas de plazo y de señal no se pueden provocar de forma portable con git real: el código con el que
+  // termina un proceso matado depende del sistema y de la versión de Node. Se prueban con los errores que
+  // execFile entrega.
+  test('salidaAceptada: solo una salida declarada, sin plazo ni señal, cuenta como válida', () => {
+    const conError = (cambios: object) => salidaAceptada({ code: 1, signal: null, killed: false, stdout: 'x', ...cambios }, [1]);
+    assert.equal(conError({}), 'x', 'salida declarada y terminó sola');
+    assert.equal(conError({ stdout: undefined }), '', 'sin stdout, vacío');
+    assert.equal(conError({ stderr: '' }), 'x', 'stderr vacío: git no protestó');
+    assert.equal(conError({ stderr: "error: 'HEAD:db/m.sql': unable to read 2c2766bf" }), null, 'git grep también termina con 1 si no pudo leer un objeto');
+    assert.equal(conError({ code: 128 }), null, 'código no declarado');
+    assert.equal(conError({ code: 'ENOENT' }), null, 'un código de sistema no es una salida');
+    assert.equal(conError({ code: null }), null, 'sin código');
+    assert.equal(conError({ killed: true }), null, 'matado por el plazo, aunque su código sea uno declarado');
+    assert.equal(conError({ signal: 'SIGTERM' }), null, 'terminado por una señal, aunque su código sea uno declarado');
+    assert.equal(salidaAceptada({ code: 1, stdout: 'x' }, []), null, 'con la lista vacía nada es válido');
+    assert.equal(salidaAceptada({ code: 1, stdout: 'x' }), null, 'sin lista nada es válido');
+    assert.equal(salidaAceptada(null, [1]), null, 'lo que no es un error de execFile no es una salida');
   });
 
   test('sin git_path las herramientas de git responden GIT_NO_CONFIGURADO', async () => {

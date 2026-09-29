@@ -161,10 +161,22 @@ function entornoGit(): Record<string, string> {
   return entorno;
 }
 
+// Si el error de execFile es una salida que el llamador declaró válida, devuelve su stdout; si no, null.
+// Solo cuenta una salida declarada de un proceso que terminó solo y sin nada en stderr: git grep también
+// termina con 1 cuando no pudo leer un objeto, y eso no es «sin coincidencias». Un proceso matado por el
+// plazo o por una señal nunca cuenta, sea cual sea el código con el que termine.
+export function salidaAceptada(error: unknown, salidasValidas: number[] = []): string | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const { code, signal, killed, stdout, stderr } = error as { code?: unknown; signal?: unknown; killed?: unknown; stdout?: unknown; stderr?: unknown };
+  const terminoSolo = killed !== true && (signal === null || signal === undefined);
+  const sinErrores = typeof stderr === 'string' ? stderr.trim() === '' : stderr === undefined || stderr === null;
+  if (!terminoSolo || !sinErrores || typeof code !== 'number' || !salidasValidas.includes(code)) return null;
+  return typeof stdout === 'string' ? stdout : '';
+}
+
 // git SIN shell, con protecciones fijas. Solo se llama con subcomandos de lectura.
 // salidasValidas: códigos de salida que no son un fallo para ese subcomando, p. ej. [1] en git grep, que
-// termina con 1 cuando no hay coincidencias. Un proceso matado por el plazo o por una señal nunca cuenta:
-// en Windows también termina con 1.
+// termina con 1 cuando no hay coincidencias (ver salidaAceptada).
 export async function git(ctx: Contexto, args: string[], opciones: { salidasValidas?: number[] } = {}): Promise<string> {
   const gitPath = ctx.git; // el archivo real, resuelto al arrancar
   if (gitPath === null) throw new ErrorMcp('GIT_NO_CONFIGURADO', 'Falta git_path (o ASYNCDV_DOCS_GIT_PATH): la ruta absoluta de git.');
@@ -180,9 +192,8 @@ export async function git(ctx: Contexto, args: string[], opciones: { salidasVali
     });
     return stdout;
   } catch (error) {
-    const { code, signal, killed, stdout } = error as { code?: unknown; signal?: unknown; killed?: unknown; stdout?: unknown };
-    const terminoSolo = killed !== true && (signal === null || signal === undefined);
-    if (terminoSolo && typeof code === 'number' && opciones.salidasValidas?.includes(code) === true && typeof stdout === 'string') return stdout;
+    const salida = salidaAceptada(error, opciones.salidasValidas);
+    if (salida !== null) return salida;
     throw new ErrorMcp('GIT', `git ${args[0] ?? ''} falló o tardó demasiado.`);
   }
 }

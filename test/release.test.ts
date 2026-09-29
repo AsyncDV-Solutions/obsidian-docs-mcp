@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
@@ -80,6 +80,19 @@ describe('propuesta y borrador sobre un repo real', () => {
     assert.equal(p.bump, 'major');
     assert.equal(p.version, '2.0.0');
     assert.ok(p.motivos.some((m) => m.includes('destructivas')));
+  });
+
+  // git grep lee el contenido de los archivos; log, diff, tag y rev-parse solo leen árboles y commits. Sin el
+  // objeto de la migración, únicamente la búsqueda del marcador falla: no debe tomarse por «sin coincidencias».
+  test('si git falla al buscar migraciones destructivas, proponer falla en vez de proponer sin esa señal', async () => {
+    gitDirecto(esc.repo, 'tag', 'v1.0.0');
+    await escribirNota(esc.repo, 'db/migrations/20260201000000_drop.sql', '-- destructiva\ndrop table x;\n');
+    commitear(esc.repo, 'feat(db): retira x');
+    const blob = gitDirecto(esc.repo, 'rev-parse', 'HEAD:db/migrations/20260201000000_drop.sql').trim();
+    const objeto = path.join(esc.repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
+    await chmod(objeto, 0o666); // git guarda sus objetos como solo lectura
+    await rm(objeto);
+    assert.equal(await codigoDe(proponer(ctx, 'main')), 'GIT');
   });
 
   test('el marcador destructivo fuera de la carpeta de migraciones no cuenta', async () => {
