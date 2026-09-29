@@ -24,10 +24,10 @@ function exigirKeyLibre(indice: Indice, key: string): void {
   if (repetida !== undefined) throw new ErrorMcp('KEY_REPETIDA', `Ya existe ${repetida.id} con la key ${key}.`);
 }
 
-export type DatosFuncionalidad = {
+// Lo que comparten las funcionalidades y las guías al nacer.
+type DatosConEvidencia = {
   key: string;
   titulo: string;
-  que_hace: string;
   afirmaciones: Afirmacion[];
   evidence: string;
   reviewed_commit: string;
@@ -36,6 +36,8 @@ export type DatosFuncionalidad = {
   relacionadas?: string[];
   pendientes?: string[];
 };
+
+export type DatosFuncionalidad = DatosConEvidencia & { que_hace: string };
 
 // ——— Versión 1.2.0: el contenido de una funcionalidad vive en bloques gestionados ———
 
@@ -55,14 +57,23 @@ function envolver(texto: string): string {
   return `\n${texto}\n`;
 }
 
-export async function prepararFuncionalidad(sesion: Sesion, sinLimpiar: DatosFuncionalidad): Promise<Preparado> {
-  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+// Crea una funcionalidad o una guía, que se documentan con evidencia: la key es única entre las dos y llevan las
+// propiedades de la revisión y los bloques de afirmaciones y pendientes. propio dice lo que solo lleva cada tipo, y se
+// calcula después de comprobar la key: sus bloques de texto y, para una plantilla propia en el formato anterior de la
+// guía, sus campos {{…}}. Recibe la lista de pendientes ya armada.
+async function crearConEvidencia(
+  sesion: Sesion,
+  datos: DatosConEvidencia,
+  tipo: 'funcionalidad' | 'guia',
+  herramienta: string,
+  propio: (pendientes: string) => { bloques: Record<string, string>; valores?: Record<string, string> },
+): Promise<Preparado> {
   const indice = await sesion.indice();
   exigirKeyLibre(indice, datos.key);
+  const pendientes = listaPendientes(sesion, indice, datos.pendientes);
+  const { bloques, valores } = propio(pendientes);
   return crear(sesion, indice, {
-    tipo: 'funcionalidad',
-    id: { numerar: 'funcionalidad' },
-    carpeta: sesion.config.carpetas.funcionalidades,
+    tipo,
     titulo: datos.titulo,
     propiedades: {
       key: datos.key,
@@ -73,15 +84,16 @@ export async function prepararFuncionalidad(sesion: Sesion, sinLimpiar: DatosFun
       source: datos.fuentes,
       related: enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
     },
-    valores: {},
-    bloques: {
-      que_hace: envolver(datos.que_hace),
-      afirmaciones: envolver(tablaAfirmaciones(datos.afirmaciones)),
-      pendientes: envolver(listaPendientes(sesion, indice, datos.pendientes)),
-    },
+    valores: valores ?? {},
+    bloques: { ...bloques, afirmaciones: envolver(tablaAfirmaciones(datos.afirmaciones)), pendientes: envolver(pendientes) },
     historial: `creada · revisada en ${datos.reviewed_commit}`,
-    herramienta: 'funcionalidad_crear',
+    herramienta,
   });
+}
+
+export async function prepararFuncionalidad(sesion: Sesion, sinLimpiar: DatosFuncionalidad): Promise<Preparado> {
+  const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
+  return crearConEvidencia(sesion, datos, 'funcionalidad', 'funcionalidad_crear', () => ({ bloques: { que_hace: envolver(datos.que_hace) } }));
 }
 
 // ——— Actualizar notas con evidencia: funcionalidades (1.2.0) y guías (2.1.0) ———
@@ -164,20 +176,7 @@ async function prepararActualizacionConEvidencia(
 
 // ——— Versión 1.1.0 ———
 
-export type DatosGuia = {
-  key: string;
-  titulo: string;
-  proposito: string;
-  pasos: string;
-  problemas?: string;
-  afirmaciones: Afirmacion[];
-  evidence: string;
-  reviewed_commit: string;
-  fuentes: string[];
-  area?: string[];
-  relacionadas?: string[];
-  pendientes?: string[];
-};
+export type DatosGuia = DatosConEvidencia & { proposito: string; pasos: string; problemas?: string };
 
 function textoProblemas(problemas: string | undefined): string {
   return problemas === undefined || problemas === '' ? '(ninguno registrado)' : problemas;
@@ -188,35 +187,13 @@ function textoProblemas(problemas: string | undefined): string {
 // Desde la 2.1.0 su contenido va en bloques gestionados (guia_actualizar los reescribe).
 export async function prepararGuia(sesion: Sesion, sinLimpiar: DatosGuia): Promise<Preparado> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
-  const indice = await sesion.indice();
-  exigirKeyLibre(indice, datos.key);
-  const problemas = textoProblemas(datos.problemas);
-  const pendientes = listaPendientes(sesion, indice, datos.pendientes);
-  return crear(sesion, indice, {
-    tipo: 'guia',
-    id: { numerar: 'guia' },
-    carpeta: sesion.config.carpetas.guias,
-    titulo: datos.titulo,
-    propiedades: {
-      key: datos.key,
-      area: datos.area ?? [],
-      evidence: datos.evidence,
-      reviewed_commit: datos.reviewed_commit,
-      reviewed_on: ahora(sesion.config.zona_horaria).fecha,
-      source: datos.fuentes,
-      related: enlacesA(sesion.config.project_dir, indice, datos.relacionadas),
-    },
-    // Solo los usa una plantilla propia en el formato anterior a la 2.1.0 (campos {{…}}, sin bloques).
-    valores: { proposito: datos.proposito, pasos: datos.pasos, problemas, afirmaciones: filasAfirmaciones(datos.afirmaciones), pendientes },
-    bloques: {
-      proposito: envolver(datos.proposito),
-      pasos: envolver(datos.pasos),
-      problemas: envolver(problemas),
-      afirmaciones: envolver(tablaAfirmaciones(datos.afirmaciones)),
-      pendientes: envolver(pendientes),
-    },
-    historial: `creada · revisada en ${datos.reviewed_commit}`,
-    herramienta: 'guia_crear',
+  return crearConEvidencia(sesion, datos, 'guia', 'guia_crear', (pendientes) => {
+    const problemas = textoProblemas(datos.problemas);
+    return {
+      // Solo los usa una plantilla propia en el formato anterior a la 2.1.0 (campos {{…}}, sin bloques).
+      valores: { proposito: datos.proposito, pasos: datos.pasos, problemas, afirmaciones: filasAfirmaciones(datos.afirmaciones), pendientes },
+      bloques: { proposito: envolver(datos.proposito), pasos: envolver(datos.pasos), problemas: envolver(problemas) },
+    };
   });
 }
 
@@ -240,8 +217,6 @@ export async function prepararAdr(sesion: Sesion, sinLimpiar: DatosAdr): Promise
   const indice = await sesion.indice();
   return crear(sesion, indice, {
     tipo: 'decision',
-    id: { numerar: 'decision' },
-    carpeta: sesion.config.carpetas.decisiones,
     titulo: datos.titulo,
     propiedades: {
       decision_status: 'Propuesta',
@@ -280,8 +255,6 @@ export async function prepararIncidencia(sesion: Sesion, sinLimpiar: DatosIncide
   const indice = await sesion.indice();
   return crear(sesion, indice, {
     tipo: 'incidencia',
-    id: { numerar: 'incidencia' },
-    carpeta: sesion.config.carpetas.incidencias,
     titulo: datos.titulo,
     propiedades: {
       status: 'Por hacer',

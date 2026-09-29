@@ -80,8 +80,6 @@ describe('cambios preparados', () => {
   describe('crear', () => {
     const TAREA = {
       tipo: 'tarea',
-      id: { numerar: 'tarea' },
-      carpeta: 'Tareas',
       titulo: 'Encender el correo',
       propiedades: { status: 'Por hacer', priority: 'P1', area: [], assignee: undefined },
       valores: { descripcion: 'Pasar la key por site.', criterios: '- [ ] Key en Vault' },
@@ -116,7 +114,6 @@ describe('cambios preparados', () => {
       const p = await crear(sesion, await sesion.indice(), {
         tipo: 'release',
         id: 'DEM-R-v1.0.0',
-        carpeta: 'Releases',
         titulo: 'Primera',
         propiedades: { version: '1.0.0' },
         valores: {},

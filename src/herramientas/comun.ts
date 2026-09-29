@@ -4,7 +4,8 @@ import type { Preparado } from '../cambios.ts';
 import { aResultado, ErrorMcp, ok } from '../errores.ts';
 import type { Resultado } from '../errores.ts';
 import { LARGO_VERSION } from '../guardia.ts';
-import { PATRON_ID_RELEASE, patronId, TIPOS_NUMERADOS } from '../ids.ts';
+import { PATRON_ID_RELEASE, patronId } from '../ids.ts';
+import { TIPOS_NUMERADOS } from '../tipos.ts';
 import { registrar } from '../log.ts';
 import type { Sesion } from '../sesion.ts';
 

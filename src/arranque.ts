@@ -10,8 +10,9 @@ import { separarNota } from './frontmatter.ts';
 import { contiene, mismaRuta, rutaCanonica } from './rutas.ts';
 import { crearGuardia } from './guardia.ts';
 import type { Guardia } from './guardia.ts';
-import { cargarPlantilla, PLANTILLAS } from './plantillas.ts';
-import type { TipoPlantilla } from './plantillas.ts';
+import { cargarPlantilla } from './plantillas.ts';
+import { TIPOS_DE_NOTA } from './tipos.ts';
+import type { TipoDeNota } from './tipos.ts';
 
 export type Contexto = {
   config: Config;
@@ -133,7 +134,7 @@ export async function validarArranque(args: string[], entorno: NodeJS.ProcessEnv
   await intentar(problemas, () => validarMarcador(guardia, config));
 
   // 7. Las plantillas existen y calzan con sus campos.
-  for (const tipo of Object.keys(PLANTILLAS) as TipoPlantilla[]) await intentar(problemas, () => cargarPlantilla(tipo, plantillas));
+  for (const tipo of Object.keys(TIPOS_DE_NOTA) as TipoDeNota[]) await intentar(problemas, () => cargarPlantilla(tipo, plantillas));
 
   // 8. git: el archivo real (git_path puede ser un enlace, como el de Homebrew).
   const gitPath = config.git_path;

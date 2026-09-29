@@ -92,6 +92,18 @@ describe('documentos y tablero', () => {
     assert.equal(nota.datos.key, 'modulo:quotes');
   });
 
+  test('funcionalidades y guías nacen con la fecha de la revisión y con sus pendientes enlazados', async () => {
+    await escribirNota(esc.proyecto, 'Tareas/DEM-T-0001-x.md', notaTarea({ id: 'DEM-T-0001', titulo: 'X' }));
+    const pendientes = { pendientes: ['DEM-T-0001'] };
+    const conPendiente = [await prepararFuncionalidad(sesion, { ...FUNCIONALIDAD, ...pendientes }), await prepararGuia(sesion, { ...GUIA, ...pendientes })];
+    for (const p of conPendiente) {
+      assert.match(p.vistaPrevia, /^reviewed_on: \d{4}-\d{2}-\d{2}$/m);
+      assert.match(p.vistaPrevia, /%% asyncdv:inicio pendientes h=[0-9a-f]{12} %%\n\n- \[\[Proyectos\/demo\/Tareas\/DEM-T-0001-x\|DEM-T-0001\]\]\n\n%% asyncdv:fin %%/);
+    }
+    const sinPendientes = await prepararFuncionalidad(sesion, FUNCIONALIDAD);
+    assert.match(sinPendientes.vistaPrevia, /%% asyncdv:inicio pendientes h=[0-9a-f]{12} %%\n\n\(ninguno\)\n\n%% asyncdv:fin %%/);
+  });
+
   test('actualizar reescribe solo lo pedido: «Notas» y lo de fuera de los bloques quedan idénticos', async () => {
     await crearFuncionalidad();
     const ruta = rutaFuncionalidad();

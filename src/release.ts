@@ -184,7 +184,6 @@ export async function prepararBorradorRelease(sesion: Sesion, sinLimpiar: DatosR
     return crear(sesion, indice, {
       tipo: 'release',
       id, // los releases no se numeran: el id lleva la versión
-      carpeta: cfg.carpetas.releases,
       titulo: datos.titulo,
       propiedades,
       valores: {},

@@ -44,8 +44,6 @@ export async function prepararTareaNueva(sesion: Sesion, sinLimpiar: DatosTareaN
   }
   return crear(sesion, indice, {
     tipo: 'tarea',
-    id: { numerar: 'tarea' },
-    carpeta: sesion.config.carpetas.tareas,
     titulo: datos.titulo,
     propiedades: {
       status: datos.estado_inicial,

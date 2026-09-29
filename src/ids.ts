@@ -2,19 +2,19 @@
 // Es el único lugar que conoce el formato; los esquemas de las herramientas, el índice, el tablero e
 // iniciar lo derivan de acá (test/endurecimiento.test.ts lo exige).
 import type { Nota } from './notas.ts';
+import { TIPOS_DE_NOTA, TIPOS_NUMERADOS } from './tipos.ts';
+import type { TipoNumerado } from './tipos.ts';
 
-// Letra de cada tipo numerado dentro del id, con el prefijo del proyecto: PRJ-T-0001, PRJ-F-0001,
-// PRJ-I-0001, PRJ-ADR-0001 y PRJ-G-0001. Los releases no se numeran: su id lleva la versión (PRJ-R-v1.2.3).
-const LETRA = { tarea: 'T', funcionalidad: 'F', incidencia: 'I', decision: 'ADR', guia: 'G' } as const;
-export type TipoNumerado = keyof typeof LETRA;
-export const TIPOS_NUMERADOS = Object.keys(LETRA) as TipoNumerado[];
+// La letra de cada tipo numerado dentro del id, con el prefijo del proyecto (PRJ-T-0001, PRJ-ADR-0001), la dice la
+// declaración de los tipos. Los releases no se numeran: su id lleva la versión (PRJ-R-v1.2.3).
+const letra = (tipo: TipoNumerado): string => TIPOS_DE_NOTA[tipo].letra;
 
 export const RUTA_CONTADORES = '_contadores.md';
 
 const ER_PREFIJO = '[A-Z]{2,5}';
 const ER_NUMERO = '\\d{4,}';
 const ER_VERSION = '\\d+\\.\\d+\\.\\d+';
-const LETRAS = Object.values(LETRA).join('|');
+const LETRAS = TIPOS_NUMERADOS.map(letra).join('|');
 
 // El prefijo del proyecto (id_prefix): de 2 a 5 letras mayúsculas.
 export const PATRON_PREFIJO = new RegExp(`^${ER_PREFIJO}$`);
@@ -23,11 +23,11 @@ export const PATRON_ID_RELEASE = new RegExp(`^${ER_PREFIJO}-R-v${ER_VERSION}$`);
 // Un id de esos tipos con cualquier prefijo: lo usan los esquemas de las herramientas, que no conocen el
 // prefijo del proyecto. Que el id exista en el proyecto lo comprueba el índice.
 export function patronId(...tipos: TipoNumerado[]): RegExp {
-  return new RegExp(`^${ER_PREFIJO}-(${tipos.map((t) => LETRA[t]).join('|')})-${ER_NUMERO}$`);
+  return new RegExp(`^${ER_PREFIJO}-(${tipos.map(letra).join('|')})-${ER_NUMERO}$`);
 }
 
 export function formatearId(prefijo: string, tipo: TipoNumerado, numero: number): string {
-  return `${prefijo}-${LETRA[tipo]}-${String(numero).padStart(4, '0')}`;
+  return `${prefijo}-${letra(tipo)}-${String(numero).padStart(4, '0')}`;
 }
 
 export function idDeRelease(prefijo: string, version: string): string {
@@ -38,7 +38,7 @@ export function idDeRelease(prefijo: string, version: string): string {
 // referencias no llevan id.
 export function idValido(id: string, tipo: string, prefijo: string): boolean {
   if (tipo === 'release') return new RegExp(`^${prefijo}-R-v${ER_VERSION}$`).test(id);
-  if (Object.hasOwn(LETRA, tipo)) return new RegExp(`^${prefijo}-${LETRA[tipo as TipoNumerado]}-${ER_NUMERO}$`).test(id);
+  if ((TIPOS_NUMERADOS as readonly string[]).includes(tipo)) return new RegExp(`^${prefijo}-${letra(tipo as TipoNumerado)}-${ER_NUMERO}$`).test(id);
   return id === '';
 }
 
@@ -65,7 +65,7 @@ export function idDeEnlace(valor: string): string {
 // ——— Contadores ———
 
 export function claveContador(tipo: TipoNumerado): string {
-  return `ultimo_${LETRA[tipo]}`;
+  return `ultimo_${letra(tipo)}`;
 }
 
 // Contenido inicial de _contadores.md: un contador en cero por tipo numerado, en el orden de las letras.
@@ -77,7 +77,7 @@ export function contadoresIniciales(): Record<string, number> {
 // Así ningún número se reutiliza, aunque borres a mano la última nota.
 export function siguienteNumero(tipo: TipoNumerado, prefijo: string, contadores: Record<string, unknown>, notas: Nota[]): number {
   const guardado = contadores[claveContador(tipo)];
-  const patron = new RegExp(`^${prefijo}-${LETRA[tipo]}-(${ER_NUMERO})$`);
+  const patron = new RegExp(`^${prefijo}-${letra(tipo)}-(${ER_NUMERO})$`);
   let mayor = 0;
   for (const n of notas) {
     const m = patron.exec(n.id);

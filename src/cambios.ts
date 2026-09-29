@@ -17,11 +17,11 @@ import { separarNota, unirNota } from './frontmatter.ts';
 import type { NotaSeparada } from './frontmatter.ts';
 import type { Leida } from './guardia.ts';
 import { claveContador, formatearId, RUTA_CONTADORES, siguienteNumero } from './ids.ts';
-import type { TipoNumerado } from './ids.ts';
 import type { Indice, Nota } from './notas.ts';
 import { cargarPlantilla, rellenar } from './plantillas.ts';
-import type { TipoPlantilla } from './plantillas.ts';
 import type { Sesion } from './sesion.ts';
+import { TIPOS_DE_NOTA } from './tipos.ts';
+import type { TipoDeNota, TipoNumerado } from './tipos.ts';
 
 // Un reemplazo recuerda el texto que reemplaza (antes): la vista previa muestra su diff.
 export type Operacion =
@@ -106,11 +106,7 @@ function lineaHistorial(momento: { legible: string }, texto: string, herramienta
 
 // ——— Crear ———
 
-export type PedidoCrear = {
-  tipo: TipoPlantilla;
-  // Numerada (PRJ-T-0001, archivo «<id>-<slug>.md») o con id propio (PRJ-R-v1.0.0, archivo «<id>.md»).
-  id: string | { numerar: TipoNumerado };
-  carpeta: string; // relativa al proyecto, p. ej. 'Tareas' (config.carpetas). Debe existir
+type PedidoBase = {
   titulo: string;
   propiedades: Propiedades; // las propias del tipo, en el orden deseado; sin valor (undefined o null) se omite
   valores: Record<string, string>; // campos {{…}} de la plantilla
@@ -120,6 +116,10 @@ export type PedidoCrear = {
   historial?: string; // primera línea del historial, si la plantilla lo tiene
   herramienta: string;
 };
+
+// La carpeta la dice la declaración del tipo, que debe existir en el vault. Un tipo numerado (PRJ-T-0001, archivo
+// «<id>-<slug>.md») recibe su id de los contadores; el que no se numera trae el suyo (PRJ-R-v1.0.0, archivo «<id>.md»).
+export type PedidoCrear = PedidoBase & ({ tipo: TipoNumerado; id?: undefined } | { tipo: Exclude<TipoDeNota, TipoNumerado>; id: string });
 
 // El contador: leer, validar, calcular el siguiente número y preparar su reemplazo.
 async function numerar(sesion: Sesion, indice: Indice, tipo: TipoNumerado): Promise<{ id: string; op: Operacion }> {
@@ -149,13 +149,14 @@ export async function crear(sesion: Sesion, indice: Indice, pedido: PedidoCrear)
   const cfg = sesion.config;
   const momento = ahora(cfg.zona_horaria);
   const ops: Operacion[] = [];
+  const carpeta = cfg.carpetas[TIPOS_DE_NOTA[pedido.tipo].carpeta];
   let id: string;
-  if (typeof pedido.id === 'string') {
-    id = pedido.id;
+  if (pedido.id === undefined) {
+    ({ id, op: ops[0] } = await numerar(sesion, indice, pedido.tipo));
   } else {
-    ({ id, op: ops[0] } = await numerar(sesion, indice, pedido.id.numerar));
+    id = pedido.id;
   }
-  const ruta = typeof pedido.id === 'string' ? `${pedido.carpeta}/${id}.md` : `${pedido.carpeta}/${id}-${slug(pedido.titulo)}.md`;
+  const ruta = pedido.id === undefined ? `${carpeta}/${id}-${slug(pedido.titulo)}.md` : `${carpeta}/${id}.md`;
   await sesion.guardia.rutaParaEscribir(ruta); // valida la carpeta ya, para avisar antes de confirmar
 
   const doc = new Document({

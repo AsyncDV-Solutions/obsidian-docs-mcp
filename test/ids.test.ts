@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { claveContador, contadoresIniciales, enlace, formatearId, idDeEnlace, idDeRelease, idValido, patronId, PATRON_ID_RELEASE, PATRON_PREFIJO, siguienteNumero, TIPOS_NUMERADOS } from '../src/ids.ts';
+import { claveContador, contadoresIniciales, enlace, formatearId, idDeEnlace, idDeRelease, idValido, patronId, PATRON_ID_RELEASE, PATRON_PREFIJO, siguienteNumero } from '../src/ids.ts';
+import { TIPOS_NUMERADOS } from '../src/tipos.ts';
 import type { Nota } from '../src/notas.ts';
 
 const nota = (id: string): Nota => ({ ruta: `${id}.md`, version: 'v', id, tipo: 'tarea', titulo: id, datos: {}, cuerpo: '' });
