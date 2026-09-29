@@ -67,6 +67,16 @@ describe('endurecimiento', () => {
     }
   });
 
+  // Una fuente de git, «repo:<ruta>@<sha>», la escribe y la lee fuentes.ts. La prueba vigila las formas habituales
+  // de escribirla o de leerla a mano en otro archivo.
+  test('solo fuentes.ts escribe y lee las fuentes de git', async () => {
+    const fuente = /repo:\$\{|\(repo\|doc\)|`doc:\$\{/;
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.basename(archivo) === 'fuentes.ts') continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), fuente, archivo);
+    }
+  });
+
   // El formato de un id lo define ids.ts: el índice, el tablero, iniciar, la configuración y los esquemas de
   // las herramientas lo derivan de ahí. Un patrón escrito a mano en otro archivo se desincroniza al agregar un tipo.
   // La prueba vigila las formas habituales de reescribirlo; no puede demostrar que nadie lo haga de otra manera.

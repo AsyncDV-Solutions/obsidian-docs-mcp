@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { ok } from '../errores.ts';
 import { notasDesactualizadas } from '../mantenimiento.ts';
 import { indexar } from '../notas.ts';
-import { AVISO_DATOS, ejecutar } from './comun.ts';
+import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 export function registrarMantenimiento(server: McpServer, entorno: Entorno): void {
@@ -11,7 +11,7 @@ export function registrarMantenimiento(server: McpServer, entorno: Entorno): voi
     {
       description:
         'Lista las notas cuyas fuentes del repo (repo:<ruta>@<sha> o doc:<ruta>#sección@<sha>) cambiaron después del SHA revisado. Solo lectura: recomienda qué revisar.',
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: SOLO_LECTURA,
     },
     async () =>
       ejecutar('notas_desactualizadas', async () => {

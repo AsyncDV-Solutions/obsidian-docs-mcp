@@ -26,6 +26,10 @@ _Avoid_: código, número, folio
 La referencia de Obsidian a una nota: nombra su ruta completa dentro del vault y muestra su id.
 _Avoid_: link, wikilink, referencia
 
+**Fuente**:
+La cita de dónde sale lo que dice una nota: un archivo del repo o un documento, con el commit contra el que se revisó.
+_Avoid_: origen, cita, referencia
+
 **Contadores**:
 La nota del sistema que guarda el último número usado por cada tipo de nota numerado. Un número nunca se reutiliza, aunque la nota que lo llevaba se borre.
 _Avoid_: secuencia, autoincremento

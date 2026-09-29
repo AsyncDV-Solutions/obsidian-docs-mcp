@@ -75,7 +75,14 @@ export type Propuesta = {
   motivos: string[]; // señales que justifican el bump, para que las revises
   clasificacion: Clasificacion | null;
   divergencia: Divergencia | null;
+  avisos: string[]; // cosas que revisar antes del tag que no son señales para el bump
 };
+
+// La rama principal va por delante de la de desarrollo: un merge --ff-only de desarrollo a principal fallará.
+function avisosDeDivergencia(d: Divergencia | null): string[] {
+  if (d === null || d.principalNoEnDesarrollo <= 0) return [];
+  return [`${d.principal} va por delante de ${d.desarrollo}: un merge --ff-only de ${d.desarrollo} a ${d.principal} fallará. Revísalo antes del tag.`];
+}
 
 export async function proponer(ctx: Contexto, headRef: string): Promise<Propuesta> {
   const git = ctx.consultasGit;
@@ -84,7 +91,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
   const divergencia = await calcularDivergencia(ctx);
   if (base === null) {
     const motivos = ['No hay tags v*: se propone la línea base v1.0.0 en el próximo release que cumpla la lista de verificación.'];
-    return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia };
+    return { head, base, bump: 'linea-base', version: '1.0.0', motivos, clasificacion: null, divergencia, avisos: avisosDeDivergencia(divergencia) };
   }
 
   const commits = await git.commitsEntre(base, head);
@@ -112,7 +119,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
     if (archivos.some((a) => a.startsWith(senal.prefijo)) && !motivos.includes(senal.mensaje)) motivos.push(senal.mensaje);
   }
   if (c.noConvencionales.length > 0) motivos.push(`${c.noConvencionales.length} commit(s) no siguen Conventional Commits: revísalos a mano.`);
-  return { head, base, bump, version: siguienteVersion(base, bump), motivos, clasificacion: c, divergencia };
+  return { head, base, bump, version: siguienteVersion(base, bump), motivos, clasificacion: c, divergencia, avisos: avisosDeDivergencia(divergencia) };
 }
 
 // ——— Borrador de notas de release ———

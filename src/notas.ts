@@ -88,6 +88,21 @@ export function enlacesA(dirProyecto: string, indice: Indice, ids: string[] | un
   });
 }
 
+// El estado de una nota: status en tareas e incidencias, decision_status en decisiones y release_status en
+// releases. Las demás notas no tienen.
+export function estadoDe(nota: Nota): string {
+  return String(nota.datos.status ?? nota.datos.decision_status ?? nota.datos.release_status ?? '');
+}
+
+// Lee una nota del proyecto por su ruta. La guardia valida la ruta y el tamaño; el project_id evita entregar la
+// nota de otro proyecto.
+export async function leerNotaDelProyecto(guardia: Guardia, config: Config, relativa: string): Promise<Leida> {
+  const leida = await guardia.leer(relativa);
+  const { datos } = separarNota(leida.texto, config.limites.yaml_max_kb * 1024);
+  if (datos.project_id !== config.project_id) throw new ErrorMcp('PROJECT_ID_AJENO', `${leida.ruta} no pertenece a este proyecto.`);
+  return leida;
+}
+
 export type Filtros = {
   tipo?: string;
   estado?: string;

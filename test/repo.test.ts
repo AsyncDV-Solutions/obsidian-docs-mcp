@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
 import { ErrorMcp } from '../src/errores.ts';
-import { divergencia, inventario, leerArchivoRepo, patronARegex, resumenGit } from '../src/repo.ts';
+import { divergencia, esDocHistorico, inventario, leerArchivoRepo, patronARegex, resumenGit } from '../src/repo.ts';
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 import { consultasGitFalsas, falloDeGit } from './consultas-git-falsas.ts';
@@ -34,6 +34,14 @@ describe('repo en solo lectura', () => {
   });
   afterEach(async () => {
     await esc.limpiar();
+  });
+
+  test('esDocHistorico: una ruta exacta, un prefijo con «*» al final y nada más', async () => {
+    await esc.escribirConfig({ git_path: rutaGit(), docs_historicos: ['docs/viejo.md', 'docs/legado/*'] });
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok);
+    for (const ruta of ['docs/viejo.md', 'docs/legado/x.md', 'docs/legado/a/b.md']) assert.equal(esDocHistorico(estado.ctx, ruta), true, ruta);
+    for (const ruta of ['docs/viejo.md.bak', 'docs/nuevo.md', 'docs/legado', 'docs/legadoX/y.md', 'otro/docs/viejo.md']) assert.equal(esDocHistorico(estado.ctx, ruta), false, ruta);
   });
 
   test('sin git_path el resumen responde GIT_NO_CONFIGURADO', async () => {

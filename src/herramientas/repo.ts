@@ -1,11 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
-import { inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
-import { AVISO_DATOS, ejecutar } from './comun.ts';
+import { citarArchivo } from '../fuentes.ts';
+import { esDocHistorico, inventario, leerArchivoRepo, resumenGit, validarRelativaRepo } from '../repo.ts';
+import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
-
-const SOLO_LECTURA = { readOnlyHint: true, openWorldHint: false };
 
 export function registrarRepo(server: McpServer, entorno: Entorno): void {
   const v = entorno.vocabulario;
@@ -19,13 +18,11 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
     async ({ categoria }) =>
       ejecutar('repo_inventario', async () => {
         const { ctx } = entorno.exigir();
-        const historicos = ctx.config.docs_historicos;
-        const esHistorico = (ruta: string): boolean => historicos.some((h) => (h.endsWith('*') ? ruta.startsWith(h.slice(0, -1)) : ruta === h));
         const grupos = (await inventario(ctx)).filter((g) => categoria === undefined || g.categoria === categoria);
         const head = await ctx.consultasGit.cabezaCorta();
         const lineas = [`Repo de ${v.nombre} @ ${head} (clon local, sin fetch).`];
         for (const g of grupos) {
-          lineas.push('', `${g.descripcion} (${g.rutas.length}):`, ...g.rutas.map((r) => `- ${r}${esHistorico(r) ? ' (histórico: preferir el código)' : ''}`));
+          lineas.push('', `${g.descripcion} (${g.rutas.length}):`, ...g.rutas.map((r) => `- ${r}${esDocHistorico(ctx, r) ? ' (histórico: preferir el código)' : ''}`));
         }
         return ok(lineas.join('\n'));
       }),
@@ -47,7 +44,7 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
         const conCambios = await ctx.consultasGit.archivoConCambios(relativa);
         return ok(
           [
-            `fuente: repo:${relativa}@${head}${conCambios ? ' (OJO: el archivo tiene cambios sin commitear; el contenido no es el de ese commit)' : ''}`,
+            `fuente: ${citarArchivo(relativa, head, conCambios)}`,
             AVISO_DATOS,
             '———',
             contenido,

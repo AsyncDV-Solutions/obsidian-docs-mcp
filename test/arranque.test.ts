@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
-import { NODE_MINIMO, validarArranque } from '../src/arranque.ts';
+import { NODE_MINIMO, permisosDeNodeActivos, validarArranque } from '../src/arranque.ts';
 import type { EstadoArranque } from '../src/arranque.ts';
 import { crearEscenario, marcador } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
@@ -20,6 +20,12 @@ describe('validarArranque', () => {
   });
   afterEach(async () => {
     await esc.limpiar();
+  });
+
+  test('permisosDeNodeActivos mira las opciones con las que se lanzó Node', () => {
+    assert.equal(permisosDeNodeActivos([]), false);
+    assert.equal(permisosDeNodeActivos(['--allow-fs-read=/x']), false, 'permitir sin --permission no activa nada');
+    assert.equal(permisosDeNodeActivos(['--permission', '--allow-fs-read=/x']), true);
   });
 
   test('una configuración válida arranca', async () => {

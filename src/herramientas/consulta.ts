@@ -1,15 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
+import { permisosDeNodeActivos } from '../arranque.ts';
 import { ESTADOS, PRIORIDADES, TIPOS, TIPOS_ITEM } from '../dominio.ts';
 import { ErrorMcp, ok } from '../errores.ts';
-import { separarNota } from '../frontmatter.ts';
 import { formatearId, idDeRelease } from '../ids.ts';
-import { buscar, filtrar, indexar, ordenPorPrioridad } from '../notas.ts';
+import { buscar, estadoDe, filtrar, indexar, leerNotaDelProyecto, ordenPorPrioridad } from '../notas.ts';
 import { NOMBRE, VERSION } from '../version.ts';
-import { AVISO_DATOS, ejecutar } from './comun.ts';
+import { AVISO_DATOS, ejecutar, SOLO_LECTURA } from './comun.ts';
 import type { Entorno } from './comun.ts';
-
-const SOLO_LECTURA = { readOnlyHint: true, openWorldHint: false };
 
 const SalidaEstado = z.object({
   servidor: z.string(),
@@ -44,7 +42,8 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
     },
     async () =>
       ejecutar('proyecto_estado', async () => {
-        const base = { servidor: NOMBRE, version: VERSION, node: process.version, permisos_node: process.execArgv.includes('--permission') ? 'activos' as const : 'inactivos' as const };
+        const permisos = permisosDeNodeActivos() ? ('activos' as const) : ('inactivos' as const);
+        const base = { servidor: NOMBRE, version: VERSION, node: process.version, permisos_node: permisos };
         if (!entorno.estado.ok) {
           const problemas = entorno.estado.problemas;
           const texto = ['Configuración con problemas. Las herramientas de notas están bloqueadas:', ...problemas.map((p) => `- [${p.codigo}] ${p.mensaje}`)].join('\n');
@@ -61,7 +60,7 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
           conteos[clave] = (conteos[clave] ?? 0) + 1;
         }
         const texto = [
-          `${NOMBRE} ${VERSION} | Node ${process.version} | proyecto ${ctx.config.project_id}: configuración OK | permisos de Node: ${process.execArgv.includes('--permission') ? 'activos' : 'inactivos'}`,
+          `${NOMBRE} ${VERSION} | Node ${process.version} | proyecto ${ctx.config.project_id}: configuración OK | permisos de Node: ${permisos}`,
           `Notas del proyecto: ${indice.notas.length}${indice.truncado ? ' (se alcanzó el tope: el índice está truncado)' : ''}.`,
           ...Object.entries(conteos).map(([clave, n]) => `- ${clave}: ${n}`),
           indice.anomalias.length === 0 ? 'Sin anomalías.' : `Anomalías (${indice.anomalias.length}); el MCP no las corrige:`,
@@ -121,11 +120,7 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
           if (nota === undefined) throw new ErrorMcp('NOTA_NO_EXISTE', `No hay una nota del proyecto con id ${id}.`);
           relativa = nota.ruta;
         }
-        const leida = await guardia.leer(relativa);
-        const { datos } = separarNota(leida.texto, ctx.config.limites.yaml_max_kb * 1024);
-        if (datos.project_id !== ctx.config.project_id) {
-          throw new ErrorMcp('PROJECT_ID_AJENO', `${leida.ruta} no pertenece a este proyecto.`);
-        }
+        const leida = await leerNotaDelProyecto(guardia, ctx.config, relativa);
         return ok([`ruta: ${leida.ruta}`, `version: ${leida.version}`, AVISO_DATOS, '———', leida.texto].join('\n'));
       }),
   );
@@ -155,7 +150,7 @@ export function registrarConsulta(server: McpServer, entorno: Entorno): void {
           id: n.id,
           titulo: n.titulo,
           tipo: n.tipo,
-          estado: String(n.datos.status ?? n.datos.decision_status ?? n.datos.release_status ?? ''),
+          estado: estadoDe(n),
           prioridad: String(n.datos.priority ?? ''),
           ruta: n.ruta,
         }));

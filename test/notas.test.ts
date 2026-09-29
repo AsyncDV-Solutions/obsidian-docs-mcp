@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { cargarConfig } from '../src/config.ts';
 import type { Config } from '../src/config.ts';
 import { crearGuardia } from '../src/guardia.ts';
-import { buscar, filtrar, indexar, mencionaId } from '../src/notas.ts';
-import { crearEscenario, escribirNota, notaTarea } from './helpers.ts';
+import { buscar, estadoDe, filtrar, indexar, leerNotaDelProyecto, mencionaId } from '../src/notas.ts';
+import type { Nota } from '../src/notas.ts';
+import { codigoDe, crearEscenario, escribirNota, notaTarea } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 
 describe('índice y consultas', () => {
@@ -66,6 +67,27 @@ describe('índice y consultas', () => {
     const idx = await indice();
     assert.deepEqual(filtrar(idx, { tipo: 'tarea', estado: 'Bloqueado' }).map((n) => n.id), ['DEM-T-0002']);
     assert.deepEqual(filtrar(idx, { depende_de: 'DEM-T-0001' }).map((n) => n.id), ['DEM-T-0002']);
+  });
+
+  test('estadoDe toma el estado que corresponde a cada tipo de nota', () => {
+    const nota = (datos: Record<string, unknown>): Nota => ({ ruta: 'x.md', version: 'v', id: 'X', tipo: 't', titulo: 'x', datos, cuerpo: '' });
+    assert.equal(estadoDe(nota({ status: 'En curso' })), 'En curso');
+    assert.equal(estadoDe(nota({ decision_status: 'Propuesta' })), 'Propuesta');
+    assert.equal(estadoDe(nota({ release_status: 'Borrador' })), 'Borrador');
+    assert.equal(estadoDe(nota({})), '', 'una funcionalidad o una guía no tienen estado');
+    assert.equal(estadoDe(nota({ status: 'Por hacer', decision_status: 'Propuesta' })), 'Por hacer', 'status manda');
+  });
+
+  test('leerNotaDelProyecto lee una nota del proyecto y rechaza la de otro proyecto o la que no dice de cuál es', async () => {
+    const g = crearGuardia(esc.proyecto, config.limites);
+    const leida = await leerNotaDelProyecto(g, config, 'Tareas/DEM-T-0001-login.md');
+    assert.equal(leida.ruta, 'Tareas/DEM-T-0001-login.md');
+    assert.match(leida.version, /^[0-9a-f]{16}$/);
+    assert.match(leida.texto, /^---\nid: DEM-T-0001\n/);
+    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/ajena.md')), 'PROJECT_ID_AJENO');
+    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/sin-id.md')), 'PROJECT_ID_AJENO');
+    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/rota.md')), 'YAML_INVALIDO');
+    assert.equal(await codigoDe(leerNotaDelProyecto(g, config, 'Tareas/no-existe.md')), 'NOTA_NO_EXISTE');
   });
 
   test('mencionaId reconoce el id exacto en un enlace y no confunde ids que se parecen', () => {

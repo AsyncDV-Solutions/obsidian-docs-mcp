@@ -25,6 +25,11 @@ export type Problema = { codigo: string; mensaje: string };
 
 export type EstadoArranque = { ok: true; ctx: Contexto } | { ok: false; problemas: Problema[] };
 
+// ¿Node se lanzó con el modelo de permisos (--permission)? Sin él, el proceso puede leer y escribir donde quiera.
+export function permisosDeNodeActivos(execArgv: string[] = process.execArgv): boolean {
+  return execArgv.includes('--permission');
+}
+
 export const NODE_MINIMO = 24; // type stripping estable y modelo de permisos (--permission)
 
 const Marcador = z.object({

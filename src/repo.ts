@@ -56,6 +56,11 @@ export function excluida(ctx: Contexto, relativa: string): boolean {
   return EXCLUIDOS_BASE.some((r) => r.test(relativa)) || ctx.config.repo.excluir.some((p) => patronARegex(p).test(relativa));
 }
 
+// ¿La ruta es un doc histórico (docs_historicos)? Una ruta exacta, o un prefijo si la entrada termina en «*».
+export function esDocHistorico(ctx: Contexto, ruta: string): boolean {
+  return ctx.config.docs_historicos.some((h) => (h.endsWith('*') ? ruta.startsWith(h.slice(0, -1)) : ruta === h));
+}
+
 export function validarRelativaRepo(ruta: string): string {
   if (/^[A-Za-z]:/.test(ruta) || ruta.startsWith('/') || ruta.startsWith('\\')) {
     throw new ErrorMcp('RUTA_ABSOLUTA', 'Solo se aceptan rutas relativas a la raíz del repo.');

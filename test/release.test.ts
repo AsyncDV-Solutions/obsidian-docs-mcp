@@ -291,6 +291,36 @@ describe('proponer con un git de mentira', () => {
     assert.ok(p.motivos.includes('1 commit(s) no siguen Conventional Commits: revísalos a mano.'));
   });
 
+  test('avisa que un merge --ff-only fallará solo si la rama principal va por delante de la de desarrollo', async () => {
+    await esc.escribirConfig({ release: { rama_desarrollo: 'develop' } });
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok);
+    const aviso = 'main va por delante de develop: un merge --ff-only de develop a main fallará. Revísalo antes del tag.';
+    const proponerCon = (contar: ConsultasGit['contarCommitsEntre'], tags: string[] = ['v1.0.0']) =>
+      proponer(
+        {
+          ...estado.ctx,
+          consultasGit: consultasGitFalsas({
+            resolver: async () => 'a'.repeat(40),
+            tagsDeVersion: async () => tags,
+            commitsEntre: async () => [],
+            archivosCambiados: async () => [],
+            contarCommitsEntre: contar,
+          }),
+        },
+        'main',
+      );
+    const adelantada: ConsultasGit['contarCommitsEntre'] = async (desde) => (desde === 'develop' ? 2 : 0);
+    assert.deepEqual((await proponerCon(adelantada)).avisos, [aviso]);
+    assert.deepEqual((await proponerCon(async () => 0)).avisos, []);
+    assert.deepEqual((await proponerCon(falloDeGit)).avisos, [], 'sin poder contar no se avisa');
+    assert.deepEqual((await proponerCon(adelantada, [])).avisos, [aviso], 'también en la línea base');
+  });
+
+  test('sin rama de desarrollo la propuesta no trae avisos', async () => {
+    assert.deepEqual((await proponer(conGit({}), 'main')).avisos, []);
+  });
+
   test('cualquier consulta que falla hace fallar la propuesta en vez de degradarla', async () => {
     const fallos: [string, Partial<ConsultasGit>][] = [
       ['resolver', { resolver: falloDeGit }],

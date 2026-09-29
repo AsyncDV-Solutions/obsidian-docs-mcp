@@ -3,6 +3,7 @@ import * as z from 'zod/v4';
 import { aplicarCambio } from '../aplicar.ts';
 import { ESTADOS, PRIORIDADES, RESOLUCIONES } from '../dominio.ts';
 import { ok } from '../errores.ts';
+import { fuenteRepo } from '../fuentes.ts';
 import { indexar } from '../notas.ts';
 import { prepararActualizacion, prepararCambioEstado, prepararTareaNueva } from '../tareas.ts';
 import { conPedidoPor, ejecutar, FECHA, ID, ID_TAREA, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
@@ -26,7 +27,7 @@ export function registrarTareas(server: McpServer, entorno: Entorno): void {
         release: RELEASE.optional(),
         blocked_by: z.array(ID).max(20).optional().describe('Dependencias: ids de tareas o incidencias'),
         relacionadas: z.array(ID).max(20).optional(),
-        fuentes: z.array(z.string().max(300).regex(UNA_LINEA)).max(20).optional().describe('tipo:valor[@sha], p. ej. repo:src/x.ts@abc1234'),
+        fuentes: z.array(z.string().max(300).regex(UNA_LINEA)).max(20).optional().describe(`tipo:valor[@sha], p. ej. ${fuenteRepo('src/x.ts', 'abc1234')}`),
         estado_inicial: z.enum(['Por hacer', 'Pendiente']).default('Por hacer'),
         motivo: MOTIVO.optional(),
         pedido_por: PEDIDO_POR,

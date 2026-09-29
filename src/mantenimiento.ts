@@ -1,11 +1,9 @@
 import type { Contexto } from './arranque.ts';
 import { ErrorMcp } from './errores.ts';
+import { leerFuenteGit } from './fuentes.ts';
 import { comoLista } from './notas.ts';
 import type { Indice } from './notas.ts';
 import { excluida, validarRelativaRepo } from './repo.ts';
-
-// Fuentes comparables con git: repo:<ruta>@<sha> y doc:<ruta>#<sección>@<sha>.
-const FUENTE_GIT = /^(repo|doc):([^#@]+)(?:#[^@]*)?@([0-9a-f]{7,40})$/;
 
 export type Desactualizada = { id: string; fuente: string; commit: string };
 
@@ -20,15 +18,15 @@ export async function notasDesactualizadas(
   let omitidas = 0;
   for (const nota of indice.notas) {
     for (const fuente of comoLista(nota.datos.source)) {
-      const m = FUENTE_GIT.exec(fuente);
-      if (m === null) continue;
+      const origen = leerFuenteGit(fuente);
+      if (origen === null) continue;
       if (revisadas >= maxFuentes) {
         omitidas++;
         continue;
       }
       let relativa: string;
       try {
-        relativa = validarRelativaRepo(m[2] ?? '');
+        relativa = validarRelativaRepo(origen.ruta);
       } catch {
         omitidas++;
         continue;
@@ -40,7 +38,7 @@ export async function notasDesactualizadas(
       revisadas++;
       let salida: string;
       try {
-        salida = await ctx.consultasGit.ultimoCambioDesde(m[3] ?? '', relativa);
+        salida = await ctx.consultasGit.ultimoCambioDesde(origen.sha, relativa);
       } catch (error) {
         if (!(error instanceof ErrorMcp && error.codigo === 'GIT')) throw error; // sin git no se sabe qué quedó atrás
         omitidas++; // el SHA no existe en tu clon local

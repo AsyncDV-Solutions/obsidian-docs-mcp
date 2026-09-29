@@ -1,12 +1,12 @@
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
-import { validarArranque } from './arranque.ts';
+import { permisosDeNodeActivos, validarArranque } from './arranque.ts';
 import { activarLogArchivo, registrar } from './log.ts';
 import { crearServidor } from './servidor.ts';
 import { NOMBRE, VERSION } from './version.ts';
 
 const estado = await validarArranque(process.argv.slice(2));
 if (estado.ok) activarLogArchivo(estado.ctx.dirEstado);
-registrar('permisos', { activos: process.execArgv.includes('--permission') });
+registrar('permisos', { activos: permisosDeNodeActivos() });
 registrar('arranque', {
   servidor: NOMBRE,
   version: VERSION,

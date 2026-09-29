@@ -3,7 +3,7 @@ import * as z from 'zod/v4';
 import { ok } from '../errores.ts';
 import { indexar } from '../notas.ts';
 import { comandosTag, listaVerificacion, prepararBorradorRelease, proponer } from '../release.ts';
-import { ejecutar, PREPARA, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
+import { ejecutar, PREPARA, respuestaPreparada, SOLO_LECTURA, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno } from './comun.ts';
 
 const LISTA = z.array(z.string().min(1).max(500).regex(UNA_LINEA)).max(50).optional();
@@ -15,7 +15,7 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
     {
       description: `Propone la versión y el tag de ${v.nombre} a partir de git (commits, migraciones y tags). SOLO TEXTO: no crea tags ni cambia nada.`,
       inputSchema: z.object({ head: z.string().max(100).optional().describe('Rama o commit a analizar; por defecto, la rama principal configurada') }),
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: SOLO_LECTURA,
     },
     async (args) =>
       ejecutar('release_proponer', async () => {
@@ -34,9 +34,7 @@ export function registrarRelease(server: McpServer, entorno: Entorno): void {
             d === null
               ? ''
               : `- Divergencia: ${d.principal} tiene ${d.principalNoEnDesarrollo} commit(s) que no están en ${d.desarrollo}; ${d.desarrollo} tiene ${d.desarrolloNoEnPrincipal} que no están en ${d.principal}.`,
-            d !== null && d.principalNoEnDesarrollo > 0
-              ? `  ⚠️ ${d.principal} va por delante de ${d.desarrollo}: un merge --ff-only de ${d.desarrollo} a ${d.principal} fallará. Revísalo antes del tag.`
-              : '',
+            ...p.avisos.map((aviso) => `  ⚠️ ${aviso}`),
             'Señales para revisar:',
             ...(p.motivos.length === 0 ? ['- (ninguna)'] : p.motivos.map((m) => `- ${m}`)),
             'Lista de verificación antes del tag:',

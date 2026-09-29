@@ -11,13 +11,14 @@ import {
 } from '../documentos.ts';
 import { EVIDENCIAS, PRIORIDADES, SEVERIDADES } from '../dominio.ts';
 import { ok } from '../errores.ts';
+import { fuenteRepo } from '../fuentes.ts';
 import { patronId } from '../ids.ts';
 import { indexar } from '../notas.ts';
 import { prepararTablero } from '../tablero.ts';
 import { conPedidoPor, ejecutar, FECHA, ID, MOTIVO, PEDIDO_POR, PREPARA, RELEASE, respuestaPreparada, UNA_LINEA, VERSION_NOTA } from './comun.ts';
 import type { Entorno, Vocabulario } from './comun.ts';
 
-const FUENTE = z.string().min(3).max(300).regex(UNA_LINEA).describe('tipo:valor[@sha], p. ej. repo:src/pedidos/crear.ts@3e22c9c');
+const FUENTE = z.string().min(3).max(300).regex(UNA_LINEA).describe(`tipo:valor[@sha], p. ej. ${fuenteRepo('src/pedidos/crear.ts', '3e22c9c')}`);
 const SHA = z.string().regex(/^[0-9a-f]{7,40}$/);
 const ID_FUNCIONALIDAD = z.string().regex(patronId('funcionalidad'));
 const ID_GUIA = z.string().regex(patronId('guia'));
