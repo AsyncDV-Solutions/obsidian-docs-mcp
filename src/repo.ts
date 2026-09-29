@@ -176,9 +176,9 @@ export async function resumenGit(ctx: Contexto): Promise<ResumenGit> {
   return {
     rama: await git.ramaActual(),
     head: await git.resolver('HEAD'),
-    cambios: await git.cambiosSinConfirmar(),
+    cambios: await git.cambiosSinCommit(),
     divergencia: await divergencia(ctx),
     recientes: await git.commitsRecientes(15),
-    tags: await git.tags('v*'),
+    tags: await git.tagsDeVersion(),
   };
 }

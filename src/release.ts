@@ -80,7 +80,7 @@ export type Propuesta = {
 export async function proponer(ctx: Contexto, headRef: string): Promise<Propuesta> {
   const git = ctx.consultasGit;
   const head = await git.resolver(headRef);
-  const base = ultimoTag(await git.tags('v*'));
+  const base = ultimoTag(await git.tagsDeVersion());
   const divergencia = await calcularDivergencia(ctx);
   if (base === null) {
     const motivos = ['No hay tags v*: se propone la línea base v1.0.0 en el próximo release que cumpla la lista de verificación.'];
@@ -153,7 +153,7 @@ export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, i
   const cfg = ctx.config;
   const d = limpiarTextoLibre(entrada, cfg.limites.campo_max_kb);
   const id = idDeRelease(cfg.id_prefix, d.version);
-  const tagExiste = (await ctx.consultasGit.tags(`v${d.version}`)).length > 0;
+  const tagExiste = await ctx.consultasGit.existeTag(`v${d.version}`);
   if (d.release_status === 'Publicada' && !tagExiste) {
     throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${d.version} en tu repo local: «Publicada» exige que exista.`);
   }

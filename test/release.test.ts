@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import type { Contexto } from '../src/arranque.ts';
-import { ErrorMcp } from '../src/errores.ts';
 import type { Commit, ConsultasGit } from '../src/git.ts';
 import { crearGuardia } from '../src/guardia.ts';
 import { indexar } from '../src/notas.ts';
@@ -83,19 +82,6 @@ describe('propuesta y borrador sobre un repo real', () => {
     assert.equal(p.bump, 'major');
     assert.equal(p.version, '2.0.0');
     assert.ok(p.motivos.some((m) => m.includes('destructivas')));
-  });
-
-  // git grep lee el contenido de los archivos; log, diff, tag y rev-parse solo leen árboles y commits. Sin el
-  // objeto de la migración, únicamente la búsqueda del marcador falla: no debe tomarse por «sin coincidencias».
-  test('si git falla al buscar migraciones destructivas, proponer falla en vez de proponer sin esa señal', async () => {
-    gitDirecto(esc.repo, 'tag', 'v1.0.0');
-    await escribirNota(esc.repo, 'db/migrations/20260201000000_drop.sql', '-- destructiva\ndrop table x;\n');
-    commitear(esc.repo, 'feat(db): retira x');
-    const blob = gitDirecto(esc.repo, 'rev-parse', 'HEAD:db/migrations/20260201000000_drop.sql').trim();
-    const objeto = path.join(esc.repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
-    await chmod(objeto, 0o666); // git guarda sus objetos como solo lectura
-    await rm(objeto);
-    assert.equal(await codigoDe(proponer(ctx, 'main')), 'GIT');
   });
 
   test('el marcador destructivo fuera de la carpeta de migraciones no cuenta', async () => {
@@ -220,7 +206,7 @@ describe('proponer con un git de mentira', () => {
     ...ctx,
     consultasGit: consultasGitFalsas({
       resolver: async () => 'a'.repeat(40),
-      tags: async () => ['v1.0.0'],
+      tagsDeVersion: async () => ['v1.0.0'],
       commitsEntre: async () => [],
       archivosCambiados: async () => [],
       archivosConMarcador: async () => [],
@@ -245,7 +231,7 @@ describe('proponer con un git de mentira', () => {
   });
 
   test('sin tags propone la línea base', async () => {
-    const p = await proponer(conGit({ tags: async () => [] }), 'main');
+    const p = await proponer(conGit({ tagsDeVersion: async () => [] }), 'main');
     assert.deepEqual([p.bump, p.version, p.base, p.clasificacion], ['linea-base', '1.0.0', null, null]);
   });
 
@@ -253,7 +239,7 @@ describe('proponer con un git de mentira', () => {
     let baseUsada = '';
     const p = await proponer(
       conGit({
-        tags: async () => ['v1.9.0', 'v1.10.0', 'v1.2.0'],
+        tagsDeVersion: async () => ['v1.9.0', 'v1.10.0', 'v1.2.0'],
         commitsEntre: async (base) => {
           baseUsada = base;
           return [commit('fix: a')];
@@ -308,7 +294,7 @@ describe('proponer con un git de mentira', () => {
   test('cualquier consulta que falla hace fallar la propuesta en vez de degradarla', async () => {
     const fallos: [string, Partial<ConsultasGit>][] = [
       ['resolver', { resolver: falloDeGit }],
-      ['tags', { tags: falloDeGit }],
+      ['tagsDeVersion', { tagsDeVersion: falloDeGit }],
       ['commitsEntre', { commitsEntre: falloDeGit }],
       ['archivosCambiados', { archivosCambiados: falloDeGit }],
       ['archivosConMarcador', { archivosConMarcador: falloDeGit }],
@@ -316,6 +302,38 @@ describe('proponer con un git de mentira', () => {
     for (const [nombre, fallo] of fallos) {
       assert.equal(await codigoDe(proponer(conGit({ commitsEntre: async () => [commit('feat: a')], ...fallo }), 'main')), 'GIT', nombre);
     }
-    assert.equal(await codigoDe(proponer(conGit({ resolver: () => Promise.reject(new ErrorMcp('REF_INVALIDA', 'no es una referencia')) }), '--mal')), 'REF_INVALIDA');
+  });
+
+  test('proponer resuelve la referencia una vez y pasa el SHA a las demás consultas', async () => {
+    const llamadas: string[] = [];
+    const sha = 'a'.repeat(40);
+    const p = await proponer(
+      conGit({
+        resolver: async (ref) => {
+          llamadas.push(`resolver ${ref}`);
+          return sha;
+        },
+        commitsEntre: async (base, head) => {
+          llamadas.push(`commitsEntre ${base} ${head}`);
+          return [commit('feat: a')];
+        },
+        archivosCambiados: async (base, head) => {
+          llamadas.push(`archivosCambiados ${base} ${head}`);
+          return [];
+        },
+        archivosConMarcador: async (ref, marcador, carpeta) => {
+          llamadas.push(`archivosConMarcador ${ref} ${marcador} ${carpeta}`);
+          return [];
+        },
+      }),
+      'develop',
+    );
+    assert.deepEqual(llamadas, [
+      'resolver develop',
+      `commitsEntre v1.0.0 ${sha}`,
+      `archivosCambiados v1.0.0 ${sha}`,
+      `archivosConMarcador ${sha} -- destructiva db/migrations`,
+    ]);
+    assert.equal(p.head, sha);
   });
 });

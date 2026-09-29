@@ -7,7 +7,7 @@ import { crearGuardia } from '../src/guardia.ts';
 import { indexar } from '../src/notas.ts';
 import type { Indice, Nota } from '../src/notas.ts';
 import { consultasGitFalsas } from './consultas-git-falsas.ts';
-import { commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, notaTarea, rutaGit } from './helpers.ts';
+import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, notaTarea, rutaGit } from './helpers.ts';
 
 test('fuente desactualizada', async () => {
   const esc = await crearEscenario();
@@ -76,6 +76,20 @@ test('qué fuentes se comparan con git, cuáles se omiten y cuántas se revisan 
 
     const tope = await notasDesactualizadas(ctx, indice, 2);
     assert.deepEqual([tope.revisadas, tope.omitidas], [2, 4], 'pasado el tope, lo demás se omite');
+  } finally {
+    await esc.limpiar();
+  }
+});
+
+// Sin git no se sabe qué quedó atrás: decir «ninguna nota quedó atrás» con todas las fuentes omitidas engaña.
+test('sin git_path notasDesactualizadas responde GIT_NO_CONFIGURADO en vez de omitir todas las fuentes', async () => {
+  const esc = await crearEscenario();
+  try {
+    const estado = await validarArranque(['--config', esc.rutaConfig], {});
+    assert.ok(estado.ok);
+    const nota: Nota = { ruta: 'Tareas/DEM-T-0001.md', version: 'v', id: 'DEM-T-0001', tipo: 'tarea', titulo: 'A', datos: { source: ['repo:docs/a.md@aaaaaaa'] }, cuerpo: '' };
+    const indice: Indice = { notas: [nota], anomalias: [], truncado: false };
+    assert.equal(await codigoDe(notasDesactualizadas(estado.ctx, indice)), 'GIT_NO_CONFIGURADO');
   } finally {
     await esc.limpiar();
   }

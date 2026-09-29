@@ -44,7 +44,7 @@ export function registrarRepo(server: McpServer, entorno: Entorno): void {
         const contenido = await leerArchivoRepo(ctx, ruta);
         const relativa = validarRelativaRepo(ruta);
         const head = await ctx.consultasGit.cabezaCorta();
-        const conCambios = (await ctx.consultasGit.cambiosSinConfirmar(relativa)) > 0;
+        const conCambios = await ctx.consultasGit.archivoConCambios(relativa);
         return ok(
           [
             `fuente: repo:${relativa}@${head}${conCambios ? ' (OJO: el archivo tiene cambios sin commitear; el contenido no es el de ese commit)' : ''}`,

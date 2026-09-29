@@ -40,6 +40,8 @@ describe('consultas de git sobre un repo real', () => {
     assert.equal(await consultas.resolver('main'), cabeza);
     gitDirecto(esc.repo, 'tag', 'v1.0.0');
     assert.equal(await consultas.resolver('v1.0.0'), cabeza, 'un tag apunta a su commit');
+    gitDirecto(esc.repo, '-c', 'tag.gpgsign=false', 'tag', '-a', 'v2.0.0', '-m', 'anotado');
+    assert.equal(await consultas.resolver('v2.0.0'), cabeza, 'un tag anotado se resuelve al commit y no al objeto del tag');
     assert.equal(await codigoDe(consultas.resolver('ref-que-no-existe')), 'GIT');
     assert.equal(await codigoDe(consultas.resolver('--output=x')), 'REF_INVALIDA');
     assert.equal(await codigoDe(consultas.resolver('main..develop')), 'REF_INVALIDA');
@@ -50,13 +52,15 @@ describe('consultas de git sobre un repo real', () => {
     assert.equal(await consultas.ramaActual(), 'main');
   });
 
-  test('tags lista por patrón y rechaza los patrones que parecen opciones', async () => {
-    assert.deepEqual(await consultas.tags('v*'), []);
+  test('tagsDeVersion lista los tags v* y existeTag pregunta por uno exacto', async () => {
+    assert.deepEqual(await consultas.tagsDeVersion(), []);
     for (const tag of ['v1.0.0', 'v1.1.0', 'otro']) gitDirecto(esc.repo, 'tag', tag);
-    assert.deepEqual(await consultas.tags('v*'), ['v1.0.0', 'v1.1.0']);
-    assert.deepEqual(await consultas.tags('v1.1.0'), ['v1.1.0']);
-    assert.deepEqual(await consultas.tags('v9.9.9'), []);
-    assert.equal(await codigoDe(consultas.tags('-l')), 'REF_INVALIDA');
+    assert.deepEqual(await consultas.tagsDeVersion(), ['v1.0.0', 'v1.1.0']);
+    assert.equal(await consultas.existeTag('v1.1.0'), true);
+    assert.equal(await consultas.existeTag('otro'), true, 'existeTag no se limita a los tags de versión');
+    assert.equal(await consultas.existeTag('v9.9.9'), false);
+    assert.equal(await codigoDe(consultas.existeTag('v1.*')), 'REF_INVALIDA', 'un patrón no es un nombre de tag');
+    assert.equal(await codigoDe(consultas.existeTag('-l')), 'REF_INVALIDA');
   });
 
   test('commitsEntre entrega sha, asunto y cuerpo, del más nuevo al más viejo', async () => {
@@ -83,6 +87,13 @@ describe('consultas de git sobre un repo real', () => {
     assert.deepEqual(await consultas.archivosCambiados('HEAD', 'HEAD'), []);
   });
 
+  test('archivosCambiados no agrupa un renombre: lista la ruta vieja y la nueva', async () => {
+    gitDirecto(esc.repo, 'tag', 'v1.0.0');
+    gitDirecto(esc.repo, 'mv', 'docs/a.md', 'docs/renombrada.md');
+    commitear(esc.repo, 'docs: renombra a');
+    assert.deepEqual((await consultas.archivosCambiados('v1.0.0', 'HEAD')).sort(), ['docs/a.md', 'docs/renombrada.md']);
+  });
+
   test('archivosConMarcador devuelve las rutas que lo contienen; sin coincidencias no es un fallo, un objeto ilegible sí', async () => {
     await escribirNota(esc.repo, 'db/migrations/1_drop.sql', '-- destructiva\ndrop table x;\n');
     await escribirNota(esc.repo, 'db/migrations/2_ok.sql', 'select 1;\n');
@@ -90,6 +101,7 @@ describe('consultas de git sobre un repo real', () => {
     commitear(esc.repo, 'feat(db): migraciones');
     assert.deepEqual(await consultas.archivosConMarcador('HEAD', '-- destructiva', 'db/migrations'), ['db/migrations/1_drop.sql']);
     assert.deepEqual(await consultas.archivosConMarcador('HEAD', 'NO-EXISTE-XYZ', 'db/migrations'), []);
+    assert.equal(await codigoDe(consultas.archivosConMarcador('ref-que-no-existe', 'x', 'db/migrations')), 'GIT', 'un ref inexistente termina con 128');
     // git grep termina con 1 tanto sin coincidencias como cuando no pudo leer un objeto: solo lo distingue stderr.
     const blob = gitDirecto(esc.repo, 'rev-parse', 'HEAD:db/migrations/1_drop.sql').trim();
     const objeto = path.join(esc.repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
@@ -108,13 +120,22 @@ describe('consultas de git sobre un repo real', () => {
     assert.equal(await codigoDe(consultas.ultimoCambioDesde('abcdef1', 'docs/a.md')), 'GIT', 'un SHA que no está en el clon');
   });
 
-  test('cambiosSinConfirmar cuenta los archivos con cambios, todos o uno', async () => {
-    assert.equal(await consultas.cambiosSinConfirmar(), 0);
+  test('cambiosSinCommit cuenta los archivos con cambios y archivoConCambios pregunta por uno', async () => {
+    assert.equal(await consultas.cambiosSinCommit(), 0);
+    assert.equal(await consultas.archivoConCambios('docs/a.md'), false);
     await writeFile(path.join(esc.repo, 'docs', 'a.md'), 'cambiado\n', 'utf8');
     await escribirNota(esc.repo, 'docs/nuevo.md', 'n\n');
-    assert.equal(await consultas.cambiosSinConfirmar(), 2);
-    assert.equal(await consultas.cambiosSinConfirmar('docs/a.md'), 1);
-    assert.equal(await consultas.cambiosSinConfirmar('docs/b.md'), 0);
+    assert.equal(await consultas.cambiosSinCommit(), 2);
+    assert.equal(await consultas.archivoConCambios('docs/a.md'), true);
+    assert.equal(await consultas.archivoConCambios('docs/nuevo.md'), true);
+    assert.equal(await consultas.archivoConCambios('docs/b.md'), false);
+  });
+
+  test('las rutas se toman literalmente: ni comodines ni sintaxis de pathspec', async () => {
+    await writeFile(path.join(esc.repo, 'docs', 'a.md'), 'cambiado\n', 'utf8');
+    assert.equal(await consultas.archivoConCambios('docs/*'), false, 'un comodín no es una ruta');
+    assert.equal(await consultas.archivoConCambios(':(top)docs/a.md'), false, 'la sintaxis de pathspec de git no se interpreta');
+    assert.deepEqual(await consultas.archivosConMarcador('HEAD', 'a', 'docs/*'), []);
   });
 
   test('contarCommitsEntre cuenta lo que hay en un lado y no en el otro', async () => {
@@ -133,6 +154,8 @@ describe('consultas de git sobre un repo real', () => {
     assert.equal(dos.length, 2);
     assert.match(dos[0] ?? '', /^[0-9a-f]{7,} \d{4}-\d{2}-\d{2} docs: b$/);
     assert.equal((await consultas.commitsRecientes(1)).length, 1);
+    assert.equal(await codigoDe(consultas.commitsRecientes(Number.NaN)), 'ARGUMENTOS');
+    assert.equal(await codigoDe(consultas.commitsRecientes(0)), 'ARGUMENTOS');
   });
 
   test('sin git_path cada consulta responde GIT_NO_CONFIGURADO', async () => {
@@ -141,20 +164,40 @@ describe('consultas de git sobre un repo real', () => {
       () => sinGit.resolver('HEAD'),
       () => sinGit.cabezaCorta(),
       () => sinGit.ramaActual(),
-      () => sinGit.tags('v*'),
+      () => sinGit.tagsDeVersion(),
+      () => sinGit.existeTag('v1.0.0'),
       () => sinGit.commitsEntre('main', 'HEAD'),
       () => sinGit.commitsRecientes(1),
       () => sinGit.contarCommitsEntre('main', 'HEAD'),
       () => sinGit.archivosCambiados('main', 'HEAD'),
       () => sinGit.archivosConMarcador('HEAD', 'x', 'db'),
       () => sinGit.ultimoCambioDesde('abcdef1', 'docs/a.md'),
-      () => sinGit.cambiosSinConfirmar(),
+      () => sinGit.cambiosSinCommit(),
+      () => sinGit.archivoConCambios('docs/a.md'),
     ];
     for (const consulta of consultasSinGit) assert.equal(await codigoDe(consulta()), 'GIT_NO_CONFIGURADO');
   });
 
-  test('un plazo agotado es un fallo, también en la consulta que acepta la salida 1', async () => {
-    const sinTiempo = crear({ timeoutMs: 1 });
+  test('toda consulta con referencias rechaza las que parecen opciones antes de lanzar git', async () => {
+    const sinGit = crear({ git: null }); // si la validación no fuera primero, respondería GIT_NO_CONFIGURADO
+    const mala = '--output=x';
+    const conReferencia = [
+      () => sinGit.resolver(mala),
+      () => sinGit.existeTag(mala),
+      () => sinGit.commitsEntre(mala, 'HEAD'),
+      () => sinGit.commitsEntre('HEAD', mala),
+      () => sinGit.contarCommitsEntre(mala, 'HEAD'),
+      () => sinGit.contarCommitsEntre('HEAD', mala),
+      () => sinGit.archivosCambiados(mala, 'HEAD'),
+      () => sinGit.archivosCambiados('HEAD', mala),
+      () => sinGit.archivosConMarcador(mala, 'x', 'docs'),
+      () => sinGit.ultimoCambioDesde(mala, 'docs/a.md'),
+    ];
+    for (const consulta of conReferencia) assert.equal(await codigoDe(consulta()), 'REF_INVALIDA');
+  });
+
+  // Con 1 ms git no alcanza a terminar: la prueba supone que lanzar un proceso tarda más que eso.
+  test('un plazo agotado es un fallo, también en la consulta que acepta la salida 1', async () => {    const sinTiempo = crear({ timeoutMs: 1 });
     assert.equal(await codigoDe(sinTiempo.archivosConMarcador('HEAD', 'NO-EXISTE-XYZ', 'docs')), 'GIT');
     assert.equal(await codigoDe(sinTiempo.resolver('HEAD')), 'GIT');
   });
@@ -190,7 +233,7 @@ describe('consultas de git sobre un repo real', () => {
     const antes = await huella();
     const ahora = new Date();
     await utimes(path.join(esc.repo, 'docs', 'a.md'), ahora, ahora); // mismo contenido, otra fecha: git querría refrescar el índice
-    await consultas.cambiosSinConfirmar();
+    await consultas.cambiosSinCommit();
     assert.equal(await huella(), antes);
   });
 
@@ -210,7 +253,7 @@ describe('consultas de git sobre un repo real', () => {
       return;
     }
     await rm(testigo);
-    await consultas.cambiosSinConfirmar();
+    await consultas.cambiosSinCommit();
     assert.equal(await existe(testigo), false);
   });
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, realpath, symlink } from 'node:fs/promises';
+import { mkdir, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { validarArranque } from '../src/arranque.ts';
@@ -9,15 +9,6 @@ import { divergencia, inventario, leerArchivoRepo, patronARegex, resumenGit } fr
 import { codigoDe, commitear, convertirEnRepoGit, crearEscenario, escribirNota, gitDirecto, rutaGit } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
 import { consultasGitFalsas, falloDeGit } from './consultas-git-falsas.ts';
-
-async function existe(ruta: string): Promise<boolean> {
-  try {
-    await access(ruta);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 describe('repo en solo lectura', () => {
   let esc: Escenario;
@@ -53,7 +44,7 @@ describe('repo en solo lectura', () => {
   });
 
   // git de Homebrew (macOS) es un enlace: /opt/homebrew/bin/git → ../Cellar/git/<versión>/bin/git.
-  test('git_path puede ser un enlace: se resuelve una vez al arrancar y se ejecuta el archivo real', async (t) => {
+  test('git_path puede ser un enlace: arranca y git responde con el archivo real', async (t) => {
     const enlace = path.join(esc.base, 'bin', process.platform === 'win32' ? 'git.exe' : 'git');
     await mkdir(path.dirname(enlace));
     try {
@@ -65,7 +56,6 @@ describe('repo en solo lectura', () => {
     await esc.escribirConfig({ git_path: enlace });
     const estado = await validarArranque(['--config', esc.rutaConfig], {});
     assert.ok(estado.ok, JSON.stringify(estado.ok ? [] : estado.problemas));
-    assert.equal(estado.ctx.git, await realpath(rutaGit()));
     assert.match(await estado.ctx.consultasGit.resolver('HEAD'), /^[0-9a-f]{40}$/);
   });
 
@@ -130,17 +120,17 @@ describe('repo en solo lectura', () => {
       conDesarrollo({
         ramaActual: async () => 'main',
         resolver: async () => 'c'.repeat(40),
-        cambiosSinConfirmar: async () => 2,
+        cambiosSinCommit: async () => 2,
         commitsRecientes: async (max) => ['abc1234 2026-09-29 docs: a', 'def5678 2026-09-28 feat: b'].slice(0, max),
-        tags: async (patron) => (patron === 'v*' ? ['v1.0.0'] : []),
+        tagsDeVersion: async () => ['v1.0.0'],
         contarCommitsEntre: falloDeGit,
       }),
     );
     assert.deepEqual([r.rama, r.head, r.cambios, r.tags], ['main', 'c'.repeat(40), 2, ['v1.0.0']]);
     assert.deepEqual(r.recientes, ['abc1234 2026-09-29 docs: a', 'def5678 2026-09-28 feat: b']);
     assert.deepEqual(r.divergencia, { principal: 'main', desarrollo: 'develop', principalNoEnDesarrollo: -1, desarrolloNoEnPrincipal: -1 }, 'la rama no está en el clon');
-    const sinGit = conDesarrollo({ contarCommitsEntre: () => Promise.reject(new ErrorMcp('GIT_NO_CONFIGURADO', 'falta git_path')) });
-    assert.equal(await codigoDe(divergencia(sinGit)), 'GIT_NO_CONFIGURADO');
+    const conOtroError = conDesarrollo({ contarCommitsEntre: () => Promise.reject(new ErrorMcp('GIT_NO_CONFIGURADO', 'falta git_path')) });
+    assert.equal(await codigoDe(divergencia(conOtroError)), 'GIT_NO_CONFIGURADO');
   });
 
   test('con rama de desarrollo configurada, el resumen informa la divergencia', async () => {

@@ -28,24 +28,30 @@ describe('endurecimiento', () => {
     }
   });
 
+  // Los comentarios pueden hablar de git y de procesos: solo cuenta el código.
+  const sinComentarios = (texto: string): string => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
   test('solo git.ts lanza procesos', async () => {
     for (const archivo of await archivosTs(SRC)) {
       if (path.basename(archivo) === 'git.ts') continue;
-      assert.doesNotMatch(await readFile(archivo, 'utf8'), /node:child_process/, archivo);
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), /child_process|\brequire\(|\bimport\(/, archivo);
     }
   });
 
-  // git es un puerto, ConsultasGit: nadie fuera de git.ts sabe armar un comando ni interpretar su salida, y el
-  // ejecutor de comandos no se exporta. Así «solo lectura» lo garantiza la interfaz y no la disciplina de cada llamador.
-  test('nadie fuera de git.ts arma comandos de git', async () => {
-    const comandos = /--end-of-options|rev-parse|--porcelain|\bexecFile\b|salidasValidas/;
+  // git es un puerto, ConsultasGit: nadie fuera de git.ts arma un comando de git. Lo que git.ts ofrece hacia
+  // afuera es una lista cerrada: un ejecutor de comandos exportado, con el nombre que sea, la rompe. La prueba vigila
+  // las formas habituales; no puede demostrar que nadie interprete la salida de git por otro camino.
+  test('nadie fuera de git.ts arma comandos de git y git.ts no exporta su ejecutor', async () => {
+    const comandos = /--end-of-options|--porcelain|\bexecFile\b|salidasValidas|\[\s*'(?:rev-parse|log|grep|tag|diff|ls-files)'/;
     for (const archivo of await archivosTs(SRC)) {
       if (path.basename(archivo) === 'git.ts') continue;
-      assert.doesNotMatch(await readFile(archivo, 'utf8'), comandos, archivo);
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), comandos, archivo);
     }
-    assert.doesNotMatch(await readFile(path.join(SRC, 'git.ts'), 'utf8'), /export (?:async )?function git\(/, 'git.ts no debe exportar el ejecutor de comandos');
+    const exportado = sinComentarios(await readFile(path.join(SRC, 'git.ts'), 'utf8'));
+    assert.doesNotMatch(exportado, /^export \{/m, 'git.ts exporta por nombre');
+    const nombres = [...exportado.matchAll(/^export (?:async )?(?:function|const|type|interface|class) (\w+)/gm)].map((m) => m[1]).sort();
+    assert.deepEqual(nombres, ['Commit', 'ConsultasGit', 'OpcionesGit', 'crearConsultasGit', 'salidaAceptada', 'validarRef']);
   });
-
   // Los preparadores reciben el texto libre del modelo y cada uno lo limpia antes de usarlo. Sin esto,
   // un preparador nuevo podría olvidarlo sin que ninguna prueba lo note. prepararTablero no recibe texto.
   test('cada preparador de tareas, documentos y release limpia el texto libre antes de usarlo', async () => {

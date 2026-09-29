@@ -1,4 +1,5 @@
 import type { Contexto } from './arranque.ts';
+import { ErrorMcp } from './errores.ts';
 import { comoLista } from './notas.ts';
 import type { Indice } from './notas.ts';
 import { excluida, validarRelativaRepo } from './repo.ts';
@@ -40,7 +41,8 @@ export async function notasDesactualizadas(
       let salida: string;
       try {
         salida = await ctx.consultasGit.ultimoCambioDesde(m[3] ?? '', relativa);
-      } catch {
+      } catch (error) {
+        if (!(error instanceof ErrorMcp && error.codigo === 'GIT')) throw error; // sin git no se sabe qué quedó atrás
         omitidas++; // el SHA no existe en tu clon local
         continue;
       }
