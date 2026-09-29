@@ -162,7 +162,10 @@ function entornoGit(): Record<string, string> {
 }
 
 // git SIN shell, con protecciones fijas. Solo se llama con subcomandos de lectura.
-export async function git(ctx: Contexto, args: string[]): Promise<string> {
+// salidasValidas: códigos de salida que no son un fallo para ese subcomando, p. ej. [1] en git grep, que
+// termina con 1 cuando no hay coincidencias. Un proceso matado por el plazo o por una señal nunca cuenta:
+// en Windows también termina con 1.
+export async function git(ctx: Contexto, args: string[], opciones: { salidasValidas?: number[] } = {}): Promise<string> {
   const gitPath = ctx.git; // el archivo real, resuelto al arrancar
   if (gitPath === null) throw new ErrorMcp('GIT_NO_CONFIGURADO', 'Falta git_path (o ASYNCDV_DOCS_GIT_PATH): la ruta absoluta de git.');
   const protecciones = ['-C', ctx.repo, '--no-pager', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
@@ -176,7 +179,10 @@ export async function git(ctx: Contexto, args: string[]): Promise<string> {
       env: entornoGit(),
     });
     return stdout;
-  } catch {
+  } catch (error) {
+    const { code, signal, killed, stdout } = error as { code?: unknown; signal?: unknown; killed?: unknown; stdout?: unknown };
+    const terminoSolo = killed !== true && (signal === null || signal === undefined);
+    if (terminoSolo && typeof code === 'number' && opciones.salidasValidas?.includes(code) === true && typeof stdout === 'string') return stdout;
     throw new ErrorMcp('GIT', `git ${args[0] ?? ''} falló o tardó demasiado.`);
   }
 }

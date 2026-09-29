@@ -76,14 +76,6 @@ export type Propuesta = {
   divergencia: Divergencia | null;
 };
 
-async function gitSiHay(ctx: Contexto, args: string[]): Promise<string> {
-  try {
-    return await git(ctx, args);
-  } catch {
-    return ''; // p. ej., git grep sin coincidencias termina con código 1
-  }
-}
-
 export async function proponer(ctx: Contexto, headRef: string): Promise<Propuesta> {
   const head = (await git(ctx, ['rev-parse', '--verify', '--end-of-options', `${validarRef(headRef)}^{commit}`])).trim();
   const base = ultimoTag((await git(ctx, ['tag', '--list', 'v*'])).split('\n').filter((l) => l !== ''));
@@ -117,7 +109,7 @@ export async function proponer(ctx: Contexto, headRef: string): Promise<Propuest
   // Migraciones destructivas (release.migraciones): una migración nueva con el marcador sube a major.
   const migraciones = ctx.config.release.migraciones;
   if (migraciones?.marcador_destructivo !== undefined) {
-    const marcadas = (await gitSiHay(ctx, ['grep', '-l', '--fixed-strings', '-e', migraciones.marcador_destructivo, head, '--', migraciones.carpeta]))
+    const marcadas = (await git(ctx, ['grep', '-l', '--fixed-strings', '-e', migraciones.marcador_destructivo, head, '--', migraciones.carpeta], { salidasValidas: [1] })) // 1: sin coincidencias
       .split('\n')
       .filter((l) => l !== '')
       .map((l) => l.slice(l.indexOf(':') + 1)) // "<sha>:ruta" → "ruta"

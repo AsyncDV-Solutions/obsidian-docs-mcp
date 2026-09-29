@@ -53,6 +53,23 @@ describe('repo en solo lectura', () => {
     await esc.limpiar();
   });
 
+  // git grep sin coincidencias termina con código 1: no es un fallo. Un error real, un ref inexistente o
+  // un timeout, sí lo es, y nunca debe pasar por «sin coincidencias».
+  test('git acepta la salida 1 solo si el llamador la declara válida, y nunca un fallo real ni un timeout', async () => {
+    const grep = ['grep', '-l', '--fixed-strings', '-e', 'NO-EXISTE-XYZ', 'HEAD'];
+    assert.equal(await git(ctx, grep, { salidasValidas: [1] }), '', 'sin coincidencias no es un fallo');
+    assert.equal(await codigoDe(git(ctx, grep)), 'GIT', 'sin declararla, la salida 1 sigue siendo un fallo');
+    assert.equal(await codigoDe(git(ctx, ['grep', '-l', '-e', 'x', 'ref-que-no-existe'], { salidasValidas: [1] })), 'GIT', 'un ref inexistente termina con 128');
+    const sinTiempo = { ...ctx, config: { ...ctx.config, limites: { ...ctx.config.limites, git_timeout_ms: 1 } } };
+    assert.equal(await codigoDe(git(sinTiempo, grep, { salidasValidas: [1] })), 'GIT', 'en Windows un proceso matado por el plazo también termina con 1');
+  });
+
+  test('sin git_path las herramientas de git responden GIT_NO_CONFIGURADO', async () => {
+    const sinGit = { ...ctx, git: null };
+    assert.equal(await codigoDe(git(sinGit, ['rev-parse', 'HEAD'])), 'GIT_NO_CONFIGURADO');
+    assert.equal(await codigoDe(resumenGit(sinGit)), 'GIT_NO_CONFIGURADO');
+  });
+
   // git de Homebrew (macOS) es un enlace: /opt/homebrew/bin/git → ../Cellar/git/<versión>/bin/git.
   test('git_path puede ser un enlace: se resuelve una vez al arrancar y se ejecuta el archivo real', async (t) => {
     const enlace = path.join(esc.base, 'bin', process.platform === 'win32' ? 'git.exe' : 'git');
