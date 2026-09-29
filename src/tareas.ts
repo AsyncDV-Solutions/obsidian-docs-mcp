@@ -1,5 +1,5 @@
 import type { Sesion } from './sesion.ts';
-import { clavesConValor, crear, editar } from './cambios.ts';
+import { clavesTocadas, crear, editar } from './cambios.ts';
 import type { Preparado, Propiedades } from './cambios.ts';
 import { agregarCriterio, criteriosPendientes, limpiarTextoLibre, normalizar, problemasDeTransicion, quienPide } from './dominio.ts';
 import type { Estado, Resolucion } from './dominio.ts';
@@ -142,7 +142,7 @@ export async function prepararActualizacion(sesion: Sesion, sinLimpiar: DatosAct
     related: enlaces(datos.relacionadas),
   };
   const criterio = datos.criterio_nuevo;
-  const nombres = [...clavesConValor(propiedades), ...(criterio === undefined ? [] : ['criterio'])];
+  const nombres = [...clavesTocadas(propiedades), ...(criterio === undefined ? [] : ['criterio'])];
   if (nombres.length === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
   return editar(sesion, nota, {
     herramienta: 'tarea_actualizar',

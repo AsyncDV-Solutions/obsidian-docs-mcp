@@ -141,7 +141,7 @@ describe('cada tipo de nota nace en su carpeta y con sus propiedades en su orden
       const { vistaPrevia } = await caso.preparar(sesion);
       const nota = /^Crear (\S+):\n———\n---\n([\s\S]*?)\n---\n/m.exec(vistaPrevia) ?? assert.fail('la vista previa no muestra una nota nueva');
       assert.equal(nota[1], caso.ruta);
-      const claves = [...(nota[2] ?? '').matchAll(/^([a-z_]+):/gm)].map((m) => m[1]);
+      const claves = [...(nota[2] ?? '').matchAll(/^([a-z_]+):/gm)].map((coincidencia) => coincidencia[1]);
       assert.deepEqual(claves, [...ENCABEZADO, ...caso.propiedades, ...FECHAS]);
       assert.match(nota[2] ?? '', new RegExp(`^id: ${caso.id}$`, 'm'));
       assert.match(nota[2] ?? '', new RegExp(`^type: ${caso.tipo}$`, 'm'));

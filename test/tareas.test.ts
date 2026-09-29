@@ -124,7 +124,7 @@ describe('tareas de punta a punta', () => {
     assert.equal(await codigoDe(prepararTareaNueva(sesion, sinPedido)), 'FALTA_PEDIDO_POR');
   });
 
-  test('cambiar de estado escribe o quita blocked_by, blocked_reason y resolution según el destino', async () => {
+  test('cambiar de estado escribe blocked_by, ignora un motivo en blanco y quita la resolución al reabrir', async () => {
     await aplicarCambio(sesion, (await crear({ titulo: 'A' })).confirmacion);
     await aplicarCambio(sesion, (await crear({ titulo: 'B' })).confirmacion);
     const rutaB = path.join(esc.proyecto, 'Tareas', 'DEM-T-0002-b.md');
@@ -143,7 +143,7 @@ describe('tareas de punta a punta', () => {
     assert.doesNotMatch(reabierta, /^resolution:/m, 'reabrir quita la resolución anterior');
   });
 
-  test('actualizar pone lo que se pide y quita con null: release, responsable y due', async () => {
+  test('actualizar pone release, responsable y due, y quita con null el release y el responsable', async () => {
     await escribirNota(esc.proyecto, 'Releases/DEM-R-v1.0.0.md', ['---', 'id: DEM-R-v1.0.0', 'project_id: demo', 'type: release', 'schema: 1', 'title: Primera', 'release_status: Borrador', '---', ''].join('\n'));
     await aplicarCambio(sesion, (await crear()).confirmacion);
     const ruta = path.join(esc.proyecto, 'Tareas', ARCHIVO);

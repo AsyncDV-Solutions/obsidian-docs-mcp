@@ -8,6 +8,7 @@ import type { TipoNumerado } from './tipos.ts';
 // La letra de cada tipo numerado dentro del id, con el prefijo del proyecto (PRJ-T-0001, PRJ-ADR-0001), la dice la
 // declaración de los tipos. Los releases no se numeran: su id lleva la versión (PRJ-R-v1.2.3).
 const letra = (tipo: TipoNumerado): string => TIPOS_DE_NOTA[tipo].letra;
+const LETRA_RELEASE = TIPOS_DE_NOTA.release.letra;
 
 export const RUTA_CONTADORES = '_contadores.md';
 
@@ -18,7 +19,7 @@ const LETRAS = TIPOS_NUMERADOS.map(letra).join('|');
 
 // El prefijo del proyecto (id_prefix): de 2 a 5 letras mayúsculas.
 export const PATRON_PREFIJO = new RegExp(`^${ER_PREFIJO}$`);
-export const PATRON_ID_RELEASE = new RegExp(`^${ER_PREFIJO}-R-v${ER_VERSION}$`);
+export const PATRON_ID_RELEASE = new RegExp(`^${ER_PREFIJO}-${LETRA_RELEASE}-v${ER_VERSION}$`);
 
 // Un id de esos tipos con cualquier prefijo: lo usan los esquemas de las herramientas, que no conocen el
 // prefijo del proyecto. Que el id exista en el proyecto lo comprueba el índice.
@@ -31,13 +32,13 @@ export function formatearId(prefijo: string, tipo: TipoNumerado, numero: number)
 }
 
 export function idDeRelease(prefijo: string, version: string): string {
-  return `${prefijo}-R-v${version}`;
+  return `${prefijo}-${LETRA_RELEASE}-v${version}`;
 }
 
 // ¿El id tiene el formato de su tipo y el prefijo del proyecto? El marcador, los contadores y las
 // referencias no llevan id.
 export function idValido(id: string, tipo: string, prefijo: string): boolean {
-  if (tipo === 'release') return new RegExp(`^${prefijo}-R-v${ER_VERSION}$`).test(id);
+  if (tipo === 'release') return new RegExp(`^${prefijo}-${LETRA_RELEASE}-v${ER_VERSION}$`).test(id);
   if ((TIPOS_NUMERADOS as readonly string[]).includes(tipo)) return new RegExp(`^${prefijo}-${letra(tipo as TipoNumerado)}-${ER_NUMERO}$`).test(id);
   return id === '';
 }
@@ -51,7 +52,7 @@ export function enlace(dirProyecto: string, rutaNota: string, alias: string): st
 
 // El id debe terminar donde termina el nombre o donde sigue un slug (-), un encabezado (#), una referencia
 // a un bloque (^) o la extensión (.md): DEM-T-0001x o «DEM-T-0001 copia» son otras notas.
-const ID_EN_NOMBRE = new RegExp(`^(?:${ER_PREFIJO}-(?:${LETRAS})-${ER_NUMERO}|${ER_PREFIJO}-R-v${ER_VERSION})(?=$|[-#^]|\\.md(?:$|[#^]))`);
+const ID_EN_NOMBRE = new RegExp(`^(?:${ER_PREFIJO}-(?:${LETRAS})-${ER_NUMERO}|${ER_PREFIJO}-${LETRA_RELEASE}-v${ER_VERSION})(?=$|[-#^]|\\.md(?:$|[#^]))`);
 
 // El id al que apunta un valor: un enlace [[…/ID-slug|alias]] o el texto tal cual. Si lo que nombra no es
 // un id, devuelve el nombre.

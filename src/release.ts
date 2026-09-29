@@ -166,7 +166,7 @@ export async function prepararBorradorRelease(sesion: Sesion, sinLimpiar: DatosR
     throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${datos.version} en tu repo local: «Publicada» exige que exista.`);
   }
   const bloque = contenidoRelease(sesion, datos);
-  const propiedades: Record<string, unknown> = {
+  const propiedades: Propiedades = {
     version: datos.version,
     proposed_tag: `v${datos.version}`,
     release_status: datos.release_status,

@@ -154,6 +154,30 @@ describe('propuesta y borrador sobre un repo real', () => {
     });
   });
 
+  test('una propiedad opcional que el release ya no trae se quita al actualizar', async () => {
+    const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();
+    const datos: DatosRelease = {
+      version: '1.0.0',
+      titulo: 'Demo App v1.0.0',
+      resumen: 'Primera versión.',
+      secciones: {},
+      migraciones: [],
+      bump: 'linea-base',
+      base_ref: 'ninguno',
+      head_ref: head,
+      release_status: 'Borrador',
+      promotion_run: '12345',
+      fuentes: [],
+    };
+    await aplicarCambio(sesion, (await prepararBorradorRelease(sesion, datos)).confirmacion);
+    const ruta = path.join(sesion.proyecto, 'Releases', 'DEM-R-v1.0.0.md');
+    assert.match(await readFile(ruta, 'utf8'), /^promotion_run: /m);
+    const nota = (await sesion.indice()).notas.find((n) => n.id === 'DEM-R-v1.0.0') ?? assert.fail('falta el release');
+    const { promotion_run: _quitado, ...sinRun } = datos;
+    await aplicarCambio(sesion, (await prepararBorradorRelease(sesion, { ...sinRun, version_esperada: nota.version })).confirmacion);
+    assert.doesNotMatch(await readFile(ruta, 'utf8'), /^promotion_run:/m);
+  });
+
   test('actualizar el borrador cambia propiedades y bloque, conserva lo escrito fuera y exige la versión leída', async () => {
     const head = gitDirecto(esc.repo, 'rev-parse', '--short', 'HEAD').trim();
     const datos: DatosRelease = {

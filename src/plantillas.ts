@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { leerBloque } from './bloques.ts';
 import { ErrorMcp } from './errores.ts';
 import { TIPOS_DE_NOTA } from './tipos.ts';
-import type { Contrato, Formato, TipoDeNota } from './tipos.ts';
+import type { Contrato, FormatoDePlantilla, TipoDeNota } from './tipos.ts';
 
 // Plantillas del MCP: viven en plantillas/ del repo del MCP, no en el vault. Con plantillas_dir
 // puedes usar las tuyas: cada una que falte ahí se toma de plantillas/.
@@ -12,7 +12,7 @@ import type { Contrato, Formato, TipoDeNota } from './tipos.ts';
 const CARPETA = fileURLToPath(new URL('../plantillas/', import.meta.url));
 
 // Qué le falta a la plantilla y qué campos {{…}} le sobran para calzar con un formato.
-function diferencias(texto: string, formato: Formato): { faltan: string[]; sobran: string[] } {
+function diferencias(texto: string, formato: FormatoDePlantilla): { faltan: string[]; sobran: string[] } {
   const usados = [...texto.matchAll(/\{\{([a-z_]+)\}\}/g)].map((m) => m[1] ?? '');
   return {
     faltan: [...formato.campos.filter((c) => !usados.includes(c)), ...formato.bloques.filter((b) => leerBloque(texto, b) === null)],
@@ -46,9 +46,9 @@ export async function cargarPlantilla(tipo: TipoDeNota, dirPropio: string | null
   } catch {
     throw new ErrorMcp('PLANTILLA_FALTA', `Falta la plantilla plantillas/${tipo}.md en el repo del MCP.`);
   }
-  const contrato: Contrato = TIPOS_DE_NOTA[tipo].plantilla;
+  const contrato: Contrato = TIPOS_DE_NOTA[tipo].contrato;
   const { faltan, sobran } = diferencias(texto, contrato);
-  const calzaConAnterior = propia !== null && (contrato.anteriores ?? []).some((formato) => Object.values(diferencias(texto, formato)).every((l) => l.length === 0));
+  const calzaConAnterior = propia !== null && contrato.anterior !== undefined && Object.values(diferencias(texto, contrato.anterior)).every((lista) => lista.length === 0);
   if ((faltan.length > 0 || sobran.length > 0) && !calzaConAnterior) {
     throw new ErrorMcp('PLANTILLA_INVALIDA', `La plantilla ${origen} no calza: faltan [${faltan.join(', ')}], sobran [${sobran.join(', ')}].`);
   }

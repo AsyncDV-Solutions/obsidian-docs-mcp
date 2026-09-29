@@ -1,6 +1,6 @@
 import type { Contexto } from './arranque.ts';
 import type { Sesion } from './sesion.ts';
-import { clavesConValor, crear, editar } from './cambios.ts';
+import { clavesTocadas, crear, editar } from './cambios.ts';
 import type { Preparado, Propiedades } from './cambios.ts';
 import { ahora, limpiarTextoLibre, quienPide } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
@@ -19,8 +19,11 @@ function filasAfirmaciones(afirmaciones: Afirmacion[]): string {
 }
 
 // La key es única entre funcionalidades y guías: una misma cosa se documenta una sola vez.
+const CLASES_CON_EVIDENCIA = ['funcionalidad', 'guia'] as const;
+type ClaseConEvidencia = (typeof CLASES_CON_EVIDENCIA)[number];
+
 function exigirKeyLibre(indice: Indice, key: string): void {
-  const repetida = indice.notas.find((n) => (n.tipo === 'funcionalidad' || n.tipo === 'guia') && n.datos.key === key);
+  const repetida = indice.notas.find((n) => (CLASES_CON_EVIDENCIA as readonly string[]).includes(n.tipo) && n.datos.key === key);
   if (repetida !== undefined) throw new ErrorMcp('KEY_REPETIDA', `Ya existe ${repetida.id} con la key ${key}.`);
 }
 
@@ -64,7 +67,7 @@ function envolver(texto: string): string {
 async function crearConEvidencia(
   sesion: Sesion,
   datos: DatosConEvidencia,
-  tipo: 'funcionalidad' | 'guia',
+  tipo: ClaseConEvidencia,
   herramienta: string,
   propio: (pendientes: string) => { bloques: Record<string, string>; valores?: Record<string, string> },
 ): Promise<Preparado> {
@@ -117,7 +120,7 @@ type DatosActualizacionConEvidencia = {
 export type DatosActualizacionFuncionalidad = DatosActualizacionConEvidencia & { que_hace?: string };
 export type DatosActualizacionGuia = DatosActualizacionConEvidencia & { proposito?: string; pasos?: string; problemas?: string };
 
-type TipoConEvidencia = { tipo: 'funcionalidad' | 'guia'; nombre: string; herramienta: string };
+type TipoConEvidencia = { tipo: ClaseConEvidencia; nombre: string; herramienta: string };
 
 export async function prepararActualizacionFuncionalidad(sesion: Sesion, sinLimpiar: DatosActualizacionFuncionalidad): Promise<Preparado> {
   const datos = limpiarTextoLibre(sinLimpiar, sesion.config.limites.campo_max_kb);
@@ -168,7 +171,7 @@ async function prepararActualizacionConEvidencia(
   if (datos.afirmaciones !== undefined) bloques.afirmaciones = envolver(tablaAfirmaciones(datos.afirmaciones));
   if (datos.pendientes !== undefined) bloques.pendientes = envolver(listaPendientes(sesion, indice, datos.pendientes));
 
-  const nombres = [...clavesConValor(propiedades), ...Object.keys(bloques)];
+  const nombres = [...clavesTocadas(propiedades), ...Object.keys(bloques)];
   if (nombres.length === 0) throw new ErrorMcp('SIN_CAMBIOS', 'No indicaste ningún campo para actualizar.');
   const detalles = [`pidió: ${pedidoPor}`, datos.motivo ? `motivo: ${datos.motivo}` : ''].filter((x) => x !== '').join(' · ');
   return editar(sesion, nota, { herramienta: t.herramienta, historial: `actualizada: ${nombres.join(', ')} · ${detalles}`, propiedades, bloques });

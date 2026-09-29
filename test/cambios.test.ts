@@ -6,6 +6,7 @@ import { aplicarCambio } from '../src/aplicar.ts';
 import { validarArranque } from '../src/arranque.ts';
 import { escribirBloque } from '../src/bloques.ts';
 import { crear, editar, regenerarBloque } from '../src/cambios.ts';
+import type { Propiedades } from '../src/cambios.ts';
 import { crearSesion } from '../src/sesion.ts';
 import type { Sesion } from '../src/sesion.ts';
 import { conConfig } from './sesiones.ts';
@@ -72,7 +73,7 @@ describe('cambios preparados', () => {
       await escribirNota(esc.proyecto, 'Ajena.md', notaConBloque('otro'));
       await escribirNota(esc.proyecto, 'Tablero.md', notaConBloque());
       assert.equal(await codigoDe(regenerarBloque(sesion, 'Ajena.md', 'tablero', 'x')), 'PROJECT_ID_AJENO');
-      assert.equal(await codigoDe(regenerarBloque(sesion, 'Tablero.md', 'otro', 'x')), 'BLOQUE_FALTA');
+      await assert.rejects(regenerarBloque(sesion, 'Tablero.md', 'otro', 'x'), { codigo: 'BLOQUE_FALTA', message: 'Tablero.md no tiene el bloque «otro».' });
       assert.equal(await codigoDe(regenerarBloque(sesion, 'NoExiste.md', 'tablero', 'x')), 'NOTA_NO_EXISTE');
     });
   });
@@ -87,7 +88,7 @@ describe('cambios preparados', () => {
       herramienta: 'tarea_crear',
     } as const;
 
-    test('con numerar: arma la nota, avanza el contador y la vista previa muestra las dos operaciones', async () => {
+    test('un tipo numerado: arma la nota, avanza el contador y la vista previa muestra las dos operaciones', async () => {
       const p = await crear(sesion, await sesion.indice(), TAREA);
       const [nota, contadores] = p.vistaPrevia.split('Cambios en _contadores.md:\n');
       assert.match(nota ?? '', /^Crear Tareas\/DEM-T-0001-encender-el-correo\.md:\n———\n---\nid: DEM-T-0001\nproject_id: demo\ntype: tarea\nschema: 1\ntitle: Encender el correo\nstatus: Por hacer\npriority: P1\narea: \[\]\ncreated: \d{4}-\d{2}-\d{2}\nupdated: /);
@@ -169,7 +170,7 @@ describe('cambios preparados', () => {
       assert.equal(await readFile(rutaDe(RUTA), 'utf8'), original, 'preparar no escribe');
     });
 
-    test('una propiedad con undefined no se toca y el orden de los cambios es el del registro', async () => {
+    test('una propiedad con undefined no se toca; las nuevas se agregan en el orden del registro', async () => {
       await writeFile(rutaDe(RUTA), notaTarea({ id: 'DEM-T-0001', titulo: 'X', extra: ['assignee: Ana'], cuerpo: CUERPO }), 'utf8');
       const p = await editar(sesion, await notaIndexada(), { herramienta: 'x', propiedades: { priority: undefined, due: '2026-10-01', assignee: undefined } });
       assert.match(p.vistaPrevia, /^\+ due: 2026-10-01$/m);
@@ -178,12 +179,20 @@ describe('cambios preparados', () => {
       assert.ok(op?.tipo === 'reemplazar');
       assert.match(op.contenido, /^priority: P2\nassignee: Ana\n/m, 'lo que ya estaba conserva su lugar');
       assert.match(op.contenido, /^due: 2026-10-01\n/m);
+      const enOrden = async (propiedades: Propiedades): Promise<string[]> => {
+        const q = await editar(sesion, await notaIndexada(), { herramienta: 'x', propiedades });
+        const [otra] = sesion.almacen.retirar(q.confirmacion).operaciones;
+        assert.ok(otra?.tipo === 'reemplazar');
+        return [...otra.contenido.matchAll(/^(area|due):/gm)].map((coincidencia) => coincidencia[1] ?? '');
+      };
+      assert.deepEqual(await enOrden({ area: ['a'], due: '2026-10-01' }), ['area', 'due']);
+      assert.deepEqual(await enOrden({ due: '2026-10-01', area: ['a'] }), ['due', 'area']);
     });
 
     test('un bloque pedido debe existir; si fue editado a mano, avisa antes de la vista previa', async () => {
       const conBloque = notaTarea({ id: 'DEM-T-0001', titulo: 'X', cuerpo: `${CUERPO}%% asyncdv:inicio que_hace %%\n%% asyncdv:fin %%\n` });
       await writeFile(rutaDe(RUTA), conBloque, 'utf8');
-      assert.equal(await codigoDe(editar(sesion, await notaIndexada(), { herramienta: 'x', bloques: { pendientes: 'y' } })), 'BLOQUE_FALTA');
+      await assert.rejects(editar(sesion, await notaIndexada(), { herramienta: 'x', bloques: { pendientes: 'y' } }), { codigo: 'BLOQUE_FALTA', message: /^DEM-T-0001 no tiene el bloque gestionado «pendientes» \(se creó a mano/ });
       await writeFile(rutaDe(RUTA), escribirBloque(conBloque, 'que_hace', 'escrito', '\n').replace('escrito', 'escrito y editado'), 'utf8');
       const p = await editar(sesion, await notaIndexada(), { herramienta: 'x', bloques: { que_hace: 'nuevo' } });
       assert.match(p.vistaPrevia, /^ATENCIÓN: el bloque «que_hace» fue editado a mano; al aplicar se pierden esos cambios\.\nCambios en /);
