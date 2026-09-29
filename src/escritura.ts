@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { FileHandle } from 'node:fs/promises';
-import { open, readFile, rename, unlink } from 'node:fs/promises';
+import { open, readFile, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as esperar } from 'node:timers/promises';
 import { ErrorMcp } from './errores.ts';
@@ -64,5 +64,35 @@ export async function reemplazarAtomico(absoluta: string, contenido: string, ver
     await unlink(temporal).catch(() => {});
     if (error instanceof ErrorMcp) throw error;
     throw new ErrorMcp('ESCRITURA', 'No pude reemplazar la nota (¿está abierta o bloqueada?). No se cambió nada.');
+  }
+}
+
+// Exclusión mutua entre procesos: un archivo de bloqueo en la carpeta de estado, fuera del vault.
+// Si dos sesiones (del mismo u otro cliente de IA) aplican cambios a la vez, una recibe BLOQUEO_OCUPADO y reintenta.
+export async function conBloqueo<T>(dirEstado: string, trabajo: () => Promise<T>): Promise<T> {
+  const ruta = path.join(dirEstado, 'escritura.lock');
+  let fh: FileHandle;
+  try {
+    fh = await open(ruta, 'wx');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    const antiguedad = Date.now() - (await stat(ruta)).mtimeMs;
+    if (antiguedad > 60_000) {
+      throw new ErrorMcp(
+        'BLOQUEO_ANTIGUO',
+        'Hay un bloqueo de escritura de hace más de un minuto. Si no hay otra sesión escribiendo, borra escritura.lock de la carpeta de estado (state_dir).',
+      );
+    }
+    throw new ErrorMcp('BLOQUEO_OCUPADO', 'Otra sesión está escribiendo. Reintenta en unos segundos.');
+  }
+  try {
+    try {
+      await fh.writeFile(`${process.pid} ${new Date().toISOString()}\n`, 'utf8');
+    } finally {
+      await fh.close();
+    }
+    return await trabajo();
+  } finally {
+    await unlink(ruta).catch(() => {});
   }
 }

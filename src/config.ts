@@ -4,6 +4,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import * as z from 'zod/v4';
 import { ErrorMcp } from './errores.ts';
+import { PATRON_PREFIJO } from './ids.ts';
 
 // Prefijo de las variables de entorno: ASYNCDV_DOCS_<CLAVE EN MAYÚSCULAS> (p. ej. ASYNCDV_DOCS_VAULT_PATH).
 export const PREFIJO_ENTORNO = 'ASYNCDV_DOCS_';
@@ -209,7 +210,7 @@ export const EsquemaConfig = z.strictObject({
   // Nombre legible; por defecto, project_id. Va dentro del comando git tag que copias a tu terminal:
   // sin comillas, $, ` ni \, para que pegarlo nunca ejecute nada.
   project_name: z.string().min(1).max(80).regex(/^[^\r\n"`$\\]*$/, 'sin saltos de línea, comillas dobles, $, ` ni \\').optional(),
-  id_prefix: z.string().regex(/^[A-Z]{2,5}$/, 'de 2 a 5 letras mayúsculas'),
+  id_prefix: z.string().regex(PATRON_PREFIJO, 'de 2 a 5 letras mayúsculas'),
   repo_path: RutaAbsoluta,
   vault_path: RutaAbsoluta,
   project_dir: RutaProyecto,

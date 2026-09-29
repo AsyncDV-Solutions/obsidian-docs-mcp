@@ -4,18 +4,11 @@ import type { Preparado } from './cambios.ts';
 import { ESTADOS } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
-import { comoLista, enlace, ordenPorPrioridad } from './notas.ts';
+import { enlace, idDeEnlace } from './ids.ts';
+import { comoLista, ordenPorPrioridad } from './notas.ts';
 import type { Indice, Nota } from './notas.ts';
 
 export const RUTA_TABLERO = 'Tablero.md';
-
-// Id al que apunta un enlace [[…/ID-slug|alias]] (o el texto tal cual, si no es un enlace).
-function idDeEnlace(valor: string): string {
-  const destino = /^\[\[([^|\]]+)/.exec(valor)?.[1];
-  if (destino === undefined) return valor;
-  const nombre = destino.split('/').at(-1) ?? '';
-  return /^(?:[A-Z]{2,5}-(?:T|F|I|ADR|G)-\d{4,}|[A-Z]{2,5}-R-v\d+\.\d+\.\d+)/.exec(nombre)?.[0] ?? nombre;
-}
 
 // Contenido del bloque «tablero». No lleva fecha: así, regenerar un tablero igual no cambia nada.
 export function generarTablero(ctx: Contexto, indice: Indice): string {

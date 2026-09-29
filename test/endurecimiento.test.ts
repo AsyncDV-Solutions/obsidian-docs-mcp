@@ -50,6 +50,16 @@ describe('endurecimiento', () => {
     }
   });
 
+  // El formato de un id lo define ids.ts: el índice, el tablero, iniciar, la configuración y los esquemas de
+  // las herramientas lo derivan de ahí. Un patrón escrito a mano en otro archivo se desincroniza al agregar un tipo.
+  test('solo ids.ts define el formato de los ids', async () => {
+    const formato = /\\d\{4,\}|\(T\|F\|I\|ADR\|G\)|R-v\\+d|\[A-Z\]\{2,5\}/;
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.basename(archivo) === 'ids.ts') continue;
+      assert.doesNotMatch(await readFile(archivo, 'utf8'), formato, archivo);
+    }
+  });
+
   // cambios.ts prepara todo lo que se escribe en el vault; iniciar.ts solo crea las notas del sistema.
   test('solo cambios.ts e iniciar.ts arman el contenido de una nota (frontmatter.ts la define)', async () => {
     for (const archivo of await archivosTs(SRC)) {

@@ -10,7 +10,7 @@ import { cargarConfig, esRutaAbsolutaLocal, leerRutaConfig, nombreProyecto, PREF
 import type { Config } from './config.ts';
 import { ErrorMcp } from './errores.ts';
 import { unirNota } from './frontmatter.ts';
-import { RUTA_CONTADORES } from './ids.ts';
+import { contadoresIniciales, RUTA_CONTADORES } from './ids.ts';
 import { contiene, mismaRuta, rutaCanonica } from './rutas.ts';
 import { RUTA_TABLERO } from './tablero.ts';
 
@@ -80,7 +80,7 @@ export async function iniciarProyecto(config: Config): Promise<Inicio> {
     proyecto,
     RUTA_CONTADORES,
     nota(
-      { ...base, type: 'contadores', schema: 1, title: 'Contadores', ultimo_T: 0, ultimo_F: 0, ultimo_I: 0, ultimo_ADR: 0, ultimo_G: 0 },
+      { ...base, type: 'contadores', schema: 1, title: 'Contadores', ...contadoresIniciales() },
       'Último número usado por cada tipo de nota. Lo actualiza el MCP al crear notas: no lo edites a mano.\n',
     ),
     inicio,

@@ -5,6 +5,7 @@ import { nombreProyecto } from './config.ts';
 import { ahora, limpiarTextoLibre } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
+import { idDeRelease } from './ids.ts';
 import type { Indice } from './notas.ts';
 import { divergencia as calcularDivergencia, git, validarRef } from './repo.ts';
 import type { Divergencia } from './repo.ts';
@@ -167,7 +168,7 @@ export function contenidoRelease(ctx: Contexto, d: DatosRelease): string {
 export async function prepararBorradorRelease(ctx: Contexto, guardia: Guardia, indice: Indice, entrada: DatosRelease): Promise<Preparado> {
   const cfg = ctx.config;
   const d = limpiarTextoLibre(entrada, cfg.limites.campo_max_kb);
-  const id = `${cfg.id_prefix}-R-v${d.version}`;
+  const id = idDeRelease(cfg.id_prefix, d.version);
   const tagExiste = (await git(ctx, ['tag', '--list', `v${d.version}`])).trim() !== '';
   if (d.release_status === 'Publicada' && !tagExiste) {
     throw new ErrorMcp('TAG_NO_VERIFICADO', `No veo el tag v${d.version} en tu repo local: «Publicada» exige que exista.`);

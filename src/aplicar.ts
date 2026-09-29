@@ -2,9 +2,8 @@ import { access } from 'node:fs/promises';
 import type { Contexto } from './arranque.ts';
 import { tomar } from './cambios.ts';
 import { ErrorMcp } from './errores.ts';
-import { crearExclusivo, reemplazarAtomico } from './escritura.ts';
+import { conBloqueo, crearExclusivo, reemplazarAtomico } from './escritura.ts';
 import type { Guardia } from './guardia.ts';
-import { conBloqueo } from './ids.ts';
 import { registrar } from './log.ts';
 
 async function existe(ruta: string): Promise<boolean> {

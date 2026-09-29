@@ -14,19 +14,6 @@ export const PRIORIDADES = ['P0', 'P1', 'P2', 'P3'] as const;
 export const RESOLUCIONES = ['hecha', 'cancelada', 'duplicada'] as const;
 export type Resolucion = (typeof RESOLUCIONES)[number];
 
-// Letra de cada tipo numerado dentro del ID (con el prefijo del proyecto): PRJ-T-0001, PRJ-F-0001, PRJ-I-0001, PRJ-ADR-0001 y PRJ-G-0001.
-export const LETRA = { tarea: 'T', funcionalidad: 'F', incidencia: 'I', decision: 'ADR', guia: 'G' } as const;
-export type TipoNumerado = keyof typeof LETRA;
-
-// ¿El id tiene el formato de su tipo? El marcador, los contadores y las referencias no llevan id.
-export function idValido(id: string, tipo: string, prefijo: string): boolean {
-  if (tipo === 'release') return new RegExp(`^${prefijo}-R-v\\d+\\.\\d+\\.\\d+$`).test(id);
-  if (Object.hasOwn(LETRA, tipo)) {
-    return new RegExp(`^${prefijo}-${LETRA[tipo as TipoNumerado]}-\\d{4,}$`).test(id);
-  }
-  return id === '';
-}
-
 // Minúsculas, sin tildes y con espacios simples: para buscar y para detectar títulos repetidos.
 export function normalizar(texto: string): string {
   return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();

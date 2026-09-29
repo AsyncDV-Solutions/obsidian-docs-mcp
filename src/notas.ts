@@ -1,9 +1,10 @@
-import type { Contexto } from './arranque.ts';
 import type { Config } from './config.ts';
-import { idValido, normalizar, PRIORIDADES, TIPOS } from './dominio.ts';
+import { normalizar, PRIORIDADES, TIPOS } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import { separarNota } from './frontmatter.ts';
 import type { Guardia, Leida } from './guardia.ts';
+import { enlace, idDeEnlace, idValido } from './ids.ts';
+import type { Proyecto } from './ids.ts';
 
 export type Nota = {
   ruta: string; // relativa a la carpeta del proyecto
@@ -79,13 +80,8 @@ export function notaVigente(indice: Indice, id: string, version: string, tipos: 
   return nota;
 }
 
-// Enlace de Obsidian con la ruta completa dentro del vault: nunca es ambiguo.
-export function enlace(ctx: Contexto, rutaNota: string, alias: string): string {
-  return `[[${ctx.config.project_dir}/${rutaNota.replace(/\.md$/i, '')}|${alias}]]`;
-}
-
 // Convierte ids en enlaces. Cada id debe existir en el índice del proyecto.
-export function enlacesA(ctx: Contexto, indice: Indice, ids: string[] | undefined): string[] {
+export function enlacesA(ctx: Proyecto, indice: Indice, ids: string[] | undefined): string[] {
   return (ids ?? []).map((id) => {
     const nota = indice.notas.find((n) => n.id === id);
     if (nota === undefined) throw new ErrorMcp('ID_DESCONOCIDO', `No existe una nota del proyecto con id ${id}.`);
@@ -111,12 +107,7 @@ export function comoLista(valor: unknown): string[] {
 
 // ¿La propiedad menciona el id, como texto o como enlace [[…/ID-slug|alias]]?
 export function mencionaId(valor: unknown, id: string): boolean {
-  return comoLista(valor).some((v) => {
-    if (v === id) return true;
-    const destino = /^\[\[([^|\]]+)/.exec(v)?.[1] ?? '';
-    const nombre = destino.split('/').at(-1) ?? '';
-    return nombre === id || nombre.startsWith(`${id}-`);
-  });
+  return comoLista(valor).some((v) => idDeEnlace(v) === id);
 }
 
 export function filtrar(indice: Indice, f: Filtros): Nota[] {

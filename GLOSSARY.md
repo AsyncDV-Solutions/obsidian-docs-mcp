@@ -18,6 +18,14 @@ _Avoid_: categoría, clase, kind
 Una nota que el MCP necesita para funcionar y que la persona crea al iniciar el proyecto: el marcador del proyecto, los contadores y el tablero.
 _Avoid_: nota interna, metadato
 
+**Id**:
+El identificador de una nota numerada o de un release, con el prefijo del proyecto delante. Los releases no se numeran: su id lleva la versión.
+_Avoid_: código, número, folio
+
+**Enlace**:
+La referencia de Obsidian a una nota: nombra su ruta completa dentro del vault y muestra su id.
+_Avoid_: link, wikilink, referencia
+
 **Contadores**:
 La nota del sistema que guarda el último número usado por cada tipo de nota numerado. Un número nunca se reutiliza, aunque la nota que lo llevaba se borre.
 _Avoid_: secuencia, autoincremento

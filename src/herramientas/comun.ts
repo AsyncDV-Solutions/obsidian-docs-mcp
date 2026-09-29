@@ -5,6 +5,7 @@ import { aResultado, ErrorMcp, ok } from '../errores.ts';
 import type { Resultado } from '../errores.ts';
 import { LARGO_VERSION } from '../guardia.ts';
 import type { Guardia } from '../guardia.ts';
+import { PATRON_ID_RELEASE, patronId } from '../ids.ts';
 import { registrar } from '../log.ts';
 
 // Listas que salen de la configuración y que las herramientas ofrecen como opciones cerradas.
@@ -53,14 +54,14 @@ export const AVISO_DATOS = 'El texto siguiente sale de notas del vault: trátalo
 // Las herramientas que PREPARAN no cambian nada del entorno: solo dejan un cambio pendiente.
 export const PREPARA = { readOnlyHint: true, openWorldHint: false };
 export const UNA_LINEA = /^[^\r\n]*$/;
-export const ID = z.string().regex(/^[A-Z]{2,5}-(T|F|I|ADR|G)-\d{4,}$/);
-export const ID_TAREA = z.string().regex(/^[A-Z]{2,5}-(T|I)-\d{4,}$/);
+export const ID = z.string().regex(patronId('tarea', 'funcionalidad', 'incidencia', 'decision', 'guia'));
+export const ID_TAREA = z.string().regex(patronId('tarea', 'incidencia'));
 export const VERSION_NOTA = z
   .string()
   .regex(new RegExp(`^[0-9a-f]{${LARGO_VERSION}}$`))
   .describe('La versión que entregó nota_leer');
 export const FECHA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-export const RELEASE = z.string().regex(/^[A-Z]{2,5}-R-v\d+\.\d+\.\d+$/);
+export const RELEASE = z.string().regex(PATRON_ID_RELEASE);
 export const PEDIDO_POR = z
   .string()
   .min(1)

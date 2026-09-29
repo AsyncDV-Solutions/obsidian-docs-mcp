@@ -3,7 +3,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { escribirBloque, leerBloque } from '../src/bloques.ts';
-import { crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
+import { conBloqueo, crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
 import { versionDe } from '../src/guardia.ts';
 import { codigoDe, crearEscenario } from './helpers.ts';
 import type { Escenario } from './helpers.ts';
@@ -17,6 +17,22 @@ describe('escritura segura', () => {
   });
   afterEach(async () => {
     await esc.limpiar();
+  });
+
+  test('conBloqueo deja pasar a una sola sesión y libera el turno aunque el trabajo falle', async () => {
+    const bloqueo = path.join(esc.proyecto, 'escritura.lock');
+    await conBloqueo(esc.proyecto, async () => {
+      assert.equal(await codigoDe(conBloqueo(esc.proyecto, async () => 'otra sesión')), 'BLOQUEO_OCUPADO');
+      assert.match(await readFile(bloqueo, 'utf8'), /^\d+ \d{4}-\d{2}-\d{2}T/, 'el archivo dice quién y cuándo');
+    });
+    await assert.rejects(
+      conBloqueo(esc.proyecto, async () => {
+        throw new Error('falla');
+      }),
+      { message: 'falla' },
+    );
+    assert.deepEqual((await readdir(esc.proyecto)).filter((n) => n === 'escritura.lock'), [], 'no queda el archivo');
+    assert.equal(await conBloqueo(esc.proyecto, async () => 'listo'), 'listo', 'tras un fallo el turno queda libre');
   });
 
   test('crear nunca sobrescribe', async () => {

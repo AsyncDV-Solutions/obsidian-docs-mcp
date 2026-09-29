@@ -11,6 +11,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y l
 
 ### Cambiado
 - El tope de tamaño y la prohibición de `%% asyncdv:` valen ahora para todo el texto que entra en una nota, no solo para los campos que ya se revisaban, y el error nombra el campo con su posición (`«criterios[1]»`, `«secciones.corregido[1]»`) en vez de solo el campo o del genérico `«item»`. Los códigos `CAMPO_GRANDE` y `CAMPO_INVALIDO` siguen igual.
+- Interno: el formato de los ids, sus enlaces y sus contadores viven en `src/ids.ts`, y el candado de escritura, en `src/escritura.ts`. El índice, el tablero, `iniciar`, la configuración y los esquemas de las herramientas lo derivan de ahí. Un solo lector de enlaces reemplaza a dos que aceptaban reglas distintas.
 - Interno: los preparadores limpian el texto al entrar y `prepararTareaNueva` devuelve la tarea repetida; los adaptadores de `herramientas/` quedan en parsear, llamar y responder, y sus esquemas comunes viven en `herramientas/comun.ts`.
 - La vista previa de crear un release cierra el contenido con `———`, como las demás creaciones, y todo reemplazo se rotula `Cambios en <ruta>:` (antes, crear una nota numerada decía `Actualizar _contadores.md:`).
 - Un bloque gestionado se escribe siempre con los saltos de línea de la nota: una nota nunca queda mezclada LF/CRLF.
