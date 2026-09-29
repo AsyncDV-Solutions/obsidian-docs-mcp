@@ -1,6 +1,6 @@
 import { access } from 'node:fs/promises';
 import type { Contexto } from './arranque.ts';
-import { consumirCupo, tomarCambio } from './confirmaciones.ts';
+import { tomar } from './cambios.ts';
 import { ErrorMcp } from './errores.ts';
 import { crearExclusivo, reemplazarAtomico } from './escritura.ts';
 import type { Guardia } from './guardia.ts';
@@ -18,8 +18,7 @@ async function existe(ruta: string): Promise<boolean> {
 
 // El ÚNICO camino que escribe en el vault.
 export async function aplicarCambio(ctx: Contexto, guardia: Guardia, confirmacion: string): Promise<string[]> {
-  const cambio = tomarCambio(confirmacion); // un solo uso, aunque falle después
-  consumirCupo(ctx.config.limites.escrituras_por_minuto);
+  const cambio = tomar(confirmacion, ctx.config.limites.escrituras_por_minuto); // cupo primero; el código sirve una sola vez
   return conBloqueo(ctx.dirEstado, async () => {
     // 1. Verificar TODO antes de escribir nada.
     const destinos: string[] = [];

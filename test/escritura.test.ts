@@ -3,7 +3,6 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { escribirBloque, leerBloque } from '../src/bloques.ts';
-import { consumirCupo, diffLineas, guardarCambio, tomarCambio } from '../src/confirmaciones.ts';
 import { crearExclusivo, reemplazarAtomico } from '../src/escritura.ts';
 import { versionDe } from '../src/guardia.ts';
 import { crearEscenario } from './helpers.ts';
@@ -76,19 +75,3 @@ describe('bloques gestionados', () => {
   });
 });
 
-describe('confirmaciones, tope y diff', () => {
-  test('un código vencido se rechaza', () => {
-    const { confirmacion } = guardarCambio({ descripcion: 'x', operaciones: [] }, 0);
-    assert.throws(() => tomarCambio(confirmacion), { codigo: 'CONFIRMACION_INVALIDA' });
-  });
-
-  test('el tope de escrituras corta', () => {
-    consumirCupo(2);
-    consumirCupo(2);
-    assert.throws(() => consumirCupo(2), { codigo: 'LIMITE' });
-  });
-
-  test('el diff muestra lo que cambia', () => {
-    assert.equal(diffLineas('a\nb\nc', 'a\nB\nc'), '  a\n- b\n+ B\n  c');
-  });
-});

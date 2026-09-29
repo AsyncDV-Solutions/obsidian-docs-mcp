@@ -1,11 +1,11 @@
 import type { Contexto } from './arranque.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
-import { enlacesA } from './creacion.ts';
 import { agregarCriterio, criteriosPendientes, normalizar, problemasDeTransicion } from './dominio.ts';
 import type { Estado, Resolucion } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
+import { enlacesA, notaVigente } from './notas.ts';
 import type { Indice, Nota } from './notas.ts';
 
 export type DatosTareaNueva = {
@@ -60,15 +60,6 @@ export async function prepararTareaNueva(ctx: Contexto, guardia: Guardia, indice
   });
 }
 
-// Busca la nota y exige que siga en la versión que el modelo leyó (concurrencia optimista).
-export function notaVigente(indice: Indice, id: string, version: string, tipos: readonly string[], nombre: string): Nota {
-  const nota = indice.notas.find((n) => n.id === id && tipos.includes(n.tipo));
-  if (nota === undefined) throw new ErrorMcp('NOTA_NO_EXISTE', `No existe ${nombre} ${id}.`);
-  if (nota.version !== version) {
-    throw new ErrorMcp('CONFLICTO', `${id} cambió desde que la leíste (versión actual ${nota.version}): vuelve a leerla.`);
-  }
-  return nota;
-}
 
 function tareaVigente(indice: Indice, id: string, version: string): Nota {
   return notaVigente(indice, id, version, ['tarea', 'incidencia'], 'la tarea o incidencia');

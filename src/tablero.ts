@@ -1,11 +1,10 @@
 import type { Contexto } from './arranque.ts';
 import { regenerarBloque } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
-import { enlace } from './creacion.ts';
 import { ESTADOS } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
-import { comoLista, ordenPorPrioridad } from './notas.ts';
+import { comoLista, enlace, ordenPorPrioridad } from './notas.ts';
 import type { Indice, Nota } from './notas.ts';
 
 export const RUTA_TABLERO = 'Tablero.md';

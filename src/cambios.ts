@@ -8,11 +8,11 @@
 //   - BOM y saltos de línea de la nota se conservan; «updated» se renueva en cada edición.
 //   - Crear una nota numerada reemplaza _contadores.md pinneado a su versión: aplicar una creación
 //     invalida las otras vistas previas de creación (nunca se reparte un número dos veces).
+//   - El código vence, sirve una sola vez y el tope de escrituras por minuto se comprueba antes de consumirlo.
+import { randomBytes } from 'node:crypto';
 import { Document } from 'yaml';
 import type { Contexto } from './arranque.ts';
 import { escribirBloque, leerBloque } from './bloques.ts';
-import { consumirCupo, diffLineas, guardarCambio, tomarCambio } from './confirmaciones.ts';
-import type { Cambio } from './confirmaciones.ts';
 import { ahora, slug } from './dominio.ts';
 import type { TipoNumerado } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
@@ -23,9 +23,103 @@ import type { Indice, Nota } from './notas.ts';
 import { cargarPlantilla, rellenar } from './plantillas.ts';
 import type { TipoPlantilla } from './plantillas.ts';
 
+export type Operacion =
+  | { tipo: 'crear'; ruta: string; contenido: string }
+  | { tipo: 'reemplazar'; ruta: string; contenido: string; versionEsperada: string };
+
+export type Cambio = { descripcion: string; operaciones: Operacion[] };
+
 export type Preparado = { confirmacion: string; expira: Date; vistaPrevia: string };
 
-export type { Cambio, Operacion } from './confirmaciones.ts';
+// ——— Códigos de confirmación y tope de escrituras ———
+
+// Cambios preparados y todavía no aplicados. Viven en la memoria del proceso: si el servidor
+// se reinicia, se pierden y hay que volver a prepararlos (falla cerrado, nunca abierto).
+const pendientes = new Map<string, { cambio: Cambio; expira: number }>();
+
+function limpiarVencidos(instante: number): void {
+  for (const [codigo, p] of pendientes) if (p.expira <= instante) pendientes.delete(codigo);
+}
+
+function guardarCambio(cambio: Cambio, minutos: number): { confirmacion: string; expira: Date } {
+  const instante = Date.now();
+  limpiarVencidos(instante);
+  const confirmacion = randomBytes(16).toString('base64url'); // 128 bits aleatorios: no se puede adivinar
+  const expira = instante + minutos * 60_000;
+  pendientes.set(confirmacion, { cambio, expira });
+  return { confirmacion, expira: new Date(expira) };
+}
+
+// Tope de escrituras por minuto (ventana deslizante): la especificación MCP exige limitar la tasa.
+const escrituras: number[] = [];
+
+function consumirCupo(maxPorMinuto: number): void {
+  const instante = Date.now();
+  while (escrituras.length > 0 && (escrituras[0] ?? 0) <= instante - 60_000) escrituras.shift();
+  if (escrituras.length >= maxPorMinuto) {
+    throw new ErrorMcp('LIMITE', `Se alcanzó el tope de ${maxPorMinuto} escrituras por minuto. Espera un momento.`);
+  }
+  escrituras.push(instante);
+}
+
+// Entrega el cambio a aplicar.ts una sola vez. El tope de escrituras por minuto se comprueba ANTES de
+// consumir el código: alcanzar el tope es una pausa, no una invalidación. Todo lo que falle después
+// de tomarlo sí lo consume: aunque aplicar falle a medias, el código ya no sirve.
+export function tomar(confirmacion: string, maxPorMinuto: number): Cambio {
+  consumirCupo(maxPorMinuto);
+  limpiarVencidos(Date.now());
+  const pendiente = pendientes.get(confirmacion);
+  pendientes.delete(confirmacion);
+  if (pendiente === undefined) {
+    throw new ErrorMcp('CONFIRMACION_INVALIDA', 'El código no existe, ya se usó o venció. Vuelve a preparar el cambio.');
+  }
+  return pendiente.cambio;
+}
+
+// ——— Vista previa ———
+
+// Diff de líneas: solo los cambios, con dos líneas de contexto.
+function diffLineas(antes: string, despues: string): string {
+  const a = antes.split(/\r?\n/);
+  const b = despues.split(/\r?\n/);
+  if (a.length * b.length > 1_000_000) return '(nota demasiado grande para un diff: revisa el contenido completo)';
+  // lcs[i][j] = largo de la subsecuencia común más larga entre a[i..] y b[j..]
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const lineas: string[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      lineas.push(`  ${a[i]}`);
+      i++;
+      j++;
+    } else if (i < a.length && (j >= b.length || lcs[i + 1][j] >= lcs[i][j + 1])) {
+      lineas.push(`- ${a[i]}`);
+      i++;
+    } else {
+      lineas.push(`+ ${b[j]}`);
+      j++;
+    }
+  }
+  const cambia = lineas.map((l) => !l.startsWith('  '));
+  const salida: string[] = [];
+  let omitiendo = false;
+  lineas.forEach((l, k) => {
+    if (cambia.slice(Math.max(0, k - 2), k + 3).some(Boolean)) {
+      salida.push(l);
+      omitiendo = false;
+    } else if (!omitiendo) {
+      salida.push('  …');
+      omitiendo = true;
+    }
+  });
+  return salida.join('\n');
+}
 
 // Operaciones con lo necesario para la vista previa: un reemplazo recuerda el texto anterior para el diff.
 type Op = { tipo: 'crear'; ruta: string; contenido: string } | { tipo: 'reemplazar'; ruta: string; contenido: string; versionEsperada: string; antes: string };
@@ -43,14 +137,6 @@ function preparar(ctx: Contexto, descripcion: string, ops: Op[], avisos: string[
   const cuerpo = paraLeer.map((op) => (op.tipo === 'crear' ? `Crear ${op.ruta}:\n———\n${op.contenido}\n———` : `Cambios en ${op.ruta}:\n${diffLineas(op.antes, op.contenido)}`));
   const { confirmacion, expira } = guardarCambio(cambio, ctx.config.limites.confirmacion_minutos);
   return { confirmacion, expira, vistaPrevia: [...avisos, ...cuerpo].join('\n') };
-}
-
-// Entrega el cambio a aplicar.ts una sola vez. El tope de escrituras por minuto se comprueba ANTES de
-// consumir el código: alcanzar el tope es una pausa, no una invalidación. Todo lo que falle después
-// de tomarlo sí lo consume: aunque aplicar falle a medias, el código ya no sirve.
-export function tomar(confirmacion: string, maxPorMinuto: number): Cambio {
-  consumirCupo(maxPorMinuto);
-  return tomarCambio(confirmacion);
 }
 
 function avisoEditadoAMano(nombre: string): string {

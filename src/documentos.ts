@@ -1,12 +1,11 @@
 import type { Contexto } from './arranque.ts';
 import { crear, editar } from './cambios.ts';
 import type { Preparado } from './cambios.ts';
-import { enlacesA } from './creacion.ts';
 import { ahora } from './dominio.ts';
 import { ErrorMcp } from './errores.ts';
 import type { Guardia } from './guardia.ts';
+import { enlacesA, notaVigente } from './notas.ts';
 import type { Indice } from './notas.ts';
-import { notaVigente } from './tareas.ts';
 
 // Una celda de tabla Markdown no puede tener "|" (partiría la columna) ni saltos de línea.
 function celda(texto: string): string {
