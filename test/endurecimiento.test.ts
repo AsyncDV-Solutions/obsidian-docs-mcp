@@ -50,8 +50,32 @@ describe('endurecimiento', () => {
     const exportado = sinComentarios(await readFile(path.join(SRC, 'git.ts'), 'utf8'));
     assert.doesNotMatch(exportado, /^export \{/m, 'git.ts exporta por nombre');
     const nombres = [...exportado.matchAll(/^export (?:async )?(?:function|const|type|interface|class) (\w+)/gm)].map((m) => m[1]).sort();
-    assert.deepEqual(nombres, ['Commit', 'ConsultasGit', 'OpcionesGit', 'crearConsultasGit', 'salidaAceptada', 'validarRef']);
+    assert.deepEqual(nombres, ['Commit', 'ConsultasGit', 'OpcionesGit', 'PATRON_REF', 'crearConsultasGit', 'salidaAceptada', 'validarRef']);
   });
+  // Qué es una referencia de git (una rama, un tag, un SHA) lo dice git.ts, que las valida antes de lanzar nada: la
+  // configuración de las ramas usa su patrón en vez de escribir otro. Vigila la forma habitual de repetirlo.
+  test('solo git.ts define qué es una referencia de git', async () => {
+    const patron = /\(\?!\.\*\\\.\\\.\)/; // el «sin ..» del patrón
+    for (const archivo of await archivosTs(SRC)) {
+      if (path.basename(archivo) === 'git.ts') continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), patron, archivo);
+    }
+  });
+
+  // Solo aplicar.ts (por el escritor de la sesión), sesion.ts (que lo trae) e iniciar.ts (que crea las notas del
+  // sistema al preparar el proyecto, fuera de los cambios preparados) importan escritura.ts.
+  test('solo aplicar.ts, sesion.ts e iniciar.ts importan escritura.ts', async () => {
+    const permitidos = ['aplicar.ts', 'escritura.ts', 'iniciar.ts', 'sesion.ts'];
+    for (const archivo of await archivosTs(SRC)) {
+      const nombre = path.relative(SRC, archivo);
+      if (permitidos.includes(nombre)) continue;
+      assert.doesNotMatch(sinComentarios(await readFile(archivo, 'utf8')), /from '(?:\.\.?\/)+escritura\.ts'/, `${nombre} importa escritura.ts`);
+    }
+    for (const nombre of ['aplicar.ts', 'sesion.ts', 'iniciar.ts']) {
+      assert.match(await readFile(path.join(SRC, nombre), 'utf8'), /from '\.\/escritura\.ts'/, `${nombre} debería importar escritura.ts`);
+    }
+  });
+
   // Los preparadores reciben el texto libre del modelo y cada uno lo limpia antes de usarlo. Sin esto,
   // un preparador nuevo podría olvidarlo sin que ninguna prueba lo note. prepararTablero no recibe texto.
   test('cada preparador de tareas, documentos y release limpia el texto libre antes de usarlo', async () => {
@@ -85,17 +109,19 @@ describe('endurecimiento', () => {
   });
 
   // El escritor de escritura.ts solo se llama por el de la sesión, y el de verdad solo lo pone la sesión: así una
-  // prueba puede poner uno de mentira. No mira iniciar.ts, que escribe con su propio open. Vigila las formas habituales.
-  test('nadie llama al escritor de escritura.ts sin pasar por la sesión, y aplicar lo usa', async () => {
+  // prueba puede poner uno de mentira. La excepción es iniciar.ts, que crea las notas del sistema al preparar el
+  // proyecto, sin sesión, con crearExclusivo. Vigila las formas habituales.
+  test('nadie llama al escritor de escritura.ts sin pasar por la sesión, salvo iniciar, y aplicar lo usa', async () => {
     for (const archivo of await archivosTs(SRC)) {
       const nombre = path.relative(SRC, archivo);
       const texto = sinComentarios(await readFile(archivo, 'utf8'));
-      if (nombre !== 'escritura.ts') assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, `${nombre} llama al escritor sin pasar por la sesión`);
+      if (nombre !== 'escritura.ts' && nombre !== 'iniciar.ts') assert.doesNotMatch(texto, /(?<!escritor\.)\b(?:crearExclusivo|reemplazarAtomico)\(/, `${nombre} llama al escritor sin pasar por la sesión`);
       if (nombre !== 'escritura.ts' && nombre !== 'sesion.ts') assert.doesNotMatch(texto, /\bescritorReal\b/, `${nombre} usa el escritor de verdad`);
     }
     const aplicarTs = sinComentarios(await readFile(path.join(SRC, 'aplicar.ts'), 'utf8'));
     assert.match(aplicarTs, /sesion\.escritor\.crearExclusivo\(/);
     assert.match(aplicarTs, /sesion\.escritor\.reemplazarAtomico\(/);
+    assert.match(sinComentarios(await readFile(path.join(SRC, 'iniciar.ts'), 'utf8')), /\bcrearExclusivo\(/, 'iniciar crea las notas del sistema con crearExclusivo');
   });
 
   // Una fuente con commit, «repo:<ruta>@<sha>», la escribe y la lee fuentes.ts, y el patrón del SHA es suyo. La prueba

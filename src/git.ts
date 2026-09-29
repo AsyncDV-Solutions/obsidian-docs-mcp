@@ -45,10 +45,10 @@ export type OpcionesGit = {
 };
 
 // Referencias git aceptadas: letras, dígitos y . _ / -, sin ".." y sin empezar con "-".
-const REF = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/;
+export const PATRON_REF = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/;
 
 export function validarRef(ref: string): string {
-  if (!REF.test(ref)) throw new ErrorMcp('REF_INVALIDA', `Referencia git no válida: «${ref}».`);
+  if (!PATRON_REF.test(ref)) throw new ErrorMcp('REF_INVALIDA', `Referencia git no válida: «${ref}».`);
   return ref;
 }
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, open, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { aplicarCambio } from '../src/aplicar.ts';
@@ -49,6 +49,32 @@ describe('iniciar: prepara la carpeta del proyecto en el vault', () => {
     assert.deepEqual(r.creadas, []);
     assert.ok(r.existentes.includes('Tablero.md'));
     assert.equal(await readFile(tablero, 'utf8'), 'TESTIGO: editado a mano\n');
+  });
+
+  // iniciar crea las notas del sistema con crearExclusivo, como aplicar: fuerza el paso a disco (fsync) y no deja una
+  // nota a medias. Se observa el fsync en el prototipo de los archivos abiertos.
+  async function archivoAbierto(): Promise<{ sync(): Promise<void> }> {
+    const abierto = await open(esc.rutaConfig, 'r');
+    try {
+      return Object.getPrototypeOf(abierto) as { sync(): Promise<void> };
+    } finally {
+      await abierto.close();
+    }
+  }
+
+  test('las notas del sistema se escriben con fsync', async (t) => {
+    const sync = t.mock.method(await archivoAbierto(), 'sync');
+    const r = await iniciarProyecto(await config());
+    assert.equal(r.creadas.filter((c) => c.endsWith('.md')).length, 3);
+    assert.equal(sync.mock.callCount(), 3, 'un fsync por cada nota del sistema');
+  });
+
+  test('si el disco falla al escribir una nota del sistema, no queda a medias', async (t) => {
+    t.mock.method(await archivoAbierto(), 'sync', async () => {
+      throw new Error('EIO');
+    });
+    await assert.rejects(iniciarProyecto(await config()), /EIO/);
+    await assert.rejects(access(path.join(esc.proyecto, '_proyecto.md')), 'la nota que falló se borra');
   });
 
   test('avisa si el vault no parece un vault de Obsidian', async () => {
